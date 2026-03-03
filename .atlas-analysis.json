@@ -1,0 +1,116 @@
+{
+  "projectType": "framework",
+  "projectName": "VTEX Payment Provider Example",
+  "projectDescription": "A reference implementation for building payment provider connectors using the VTEX Payment Provider Protocol",
+  "theme": "aspen",
+  "primaryColor": "#F71963",
+  "lightColor": "#FFE0EB",
+  "darkColor": "#C91450",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/payment-provider-protocol",
+              "concepts/architecture",
+              "concepts/payment-flows",
+              "concepts/builders"
+            ]
+          },
+          {
+            "group": "Implementation Guide",
+            "pages": [
+              "guides/creating-connector",
+              "guides/implementing-routes",
+              "guides/configuration",
+              "guides/payment-methods"
+            ]
+          },
+          {
+            "group": "Advanced Features",
+            "pages": [
+              "advanced/secure-proxy",
+              "advanced/oauth",
+              "advanced/split-payments",
+              "advanced/custom-fields",
+              "advanced/retry-mechanism"
+            ]
+          },
+          {
+            "group": "Testing & Deployment",
+            "pages": [
+              "deployment/testing",
+              "deployment/publishing",
+              "deployment/production"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/payment-provider",
+              "api/payment-provider-service"
+            ]
+          },
+          {
+            "group": "Routes",
+            "pages": [
+              "api/routes/authorize",
+              "api/routes/cancel",
+              "api/routes/settle",
+              "api/routes/refund",
+              "api/routes/inbound"
+            ]
+          },
+          {
+            "group": "Types & Interfaces",
+            "pages": [
+              "api/types/requests",
+              "api/types/responses",
+              "api/types/configuration"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Payment Provider Protocol implementation",
+    "Multiple payment method support (credit cards, bank invoice)",
+    "Secure Proxy for PCI compliance",
+    "Split payment capabilities",
+    "OAuth configuration flow",
+    "Retry mechanism for async payments",
+    "VBase integration for state persistence",
+    "Configurable payment flows"
+  ],
+  "publicApiSurface": [
+    "PaymentProvider (abstract class)",
+    "PaymentProviderService",
+    "authorize() - Payment authorization route",
+    "cancel() - Payment cancellation route",
+    "settle() - Payment settlement route",
+    "refund() - Payment refund route",
+    "inbound() - Inbound webhook route",
+    "SecureExternalClient",
+    "Authorizations helper methods",
+    "Cancellations helper methods",
+    "Settlements helper methods",
+    "Refunds helper methods"
+  ]
+}
