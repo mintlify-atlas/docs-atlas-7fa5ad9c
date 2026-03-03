@@ -1,0 +1,424 @@
+---
+title: 'inbound()'
+description: 'Handle incoming webhook requests from payment providers'
+---
+
+## Overview
+
+The `inbound` property handles incoming webhook notifications from payment providers. This optional route receives asynchronous updates about payment status changes, such as when a pending payment is approved or when a customer completes a bank invoice payment.
+
+## Property signature
+
+```typescript
+public inbound: undefined | InboundRequestHandler
+```
+
+## Type definition
+
+```typescript
+type InboundRequestHandler = (
+  request: InboundRequest
+) => Promise<InboundResponse>
+
+interface InboundRequest {
+  requestId: string
+  transactionId?: string
+  paymentId?: string
+  authorizationId?: string
+  body: unknown // Provider-specific payload
+  headers: Record<string, string>
+}
+
+interface InboundResponse {
+  status: number
+  body?: unknown
+}
+```
+
+## When to use inbound
+
+Implement the `inbound` handler when your payment provider:
+
+<CardGroup cols={2}>
+  <Card title="Sends webhooks" icon="webhook">
+    Provider sends HTTP callbacks for payment status updates
+  </Card>
+  <Card title="Async payments" icon="clock">
+    Supports asynchronous payment methods like bank transfers or invoices
+  </Card>
+  <Card title="3D Secure" icon="shield-halved">
+    Notifies completion of redirect-based authentication
+  </Card>
+  <Card title="Status changes" icon="arrow-right-arrow-left">
+    Reports chargebacks, disputes, or other post-settlement events
+  </Card>
+</CardGroup>
+
+## Implementation
+
+The test suite example shows `inbound` as undefined:
+
+<CodeGroup>
+```typescript connector.ts
+public inbound: undefined
+```
+
+```typescript Production example
+import { PaymentProvider } from '@vtex/payment-provider'
+import crypto from 'crypto'
+
+export default class MyPaymentProvider extends PaymentProvider {
+  public inbound = async (
+    request: InboundRequest
+  ): Promise<InboundResponse> => {
+    try {
+      // Validate webhook signature
+      if (!this.validateWebhookSignature(request)) {
+        return { status: 401, body: { error: 'Invalid signature' } }
+      }
+
+      // Parse provider-specific payload
+      const payload = request.body as ProviderWebhookPayload
+
+      // Handle different event types
+      switch (payload.eventType) {
+        case 'payment.approved':
+          await this.handlePaymentApproved(payload)
+          break
+        case 'payment.denied':
+          await this.handlePaymentDenied(payload)
+          break
+        case 'payment.refunded':
+          await this.handlePaymentRefunded(payload)
+          break
+        default:
+          console.log('Unknown event type:', payload.eventType)
+      }
+
+      return { status: 200, body: { received: true } }
+    } catch (error) {
+      console.error('Inbound webhook error:', error)
+      return { status: 500, body: { error: error.message } }
+    }
+  }
+
+  private validateWebhookSignature(request: InboundRequest): boolean {
+    const signature = request.headers['x-provider-signature']
+    const payload = JSON.stringify(request.body)
+    const expectedSignature = crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(payload)
+      .digest('hex')
+    
+    return signature === expectedSignature
+  }
+}
+```
+</CodeGroup>
+
+## Common scenarios
+
+### Async payment approval
+
+Handle notifications when a pending payment is approved:
+
+```typescript
+public inbound = async (
+  request: InboundRequest
+): Promise<InboundResponse> => {
+  const payload = request.body as ProviderWebhook
+
+  if (payload.event === 'payment.approved') {
+    const authorizationRequest = await this.getAuthorizationRequest(
+      payload.paymentId
+    )
+
+    // Send approval notification to VTEX
+    await this.callback(authorizationRequest, {
+      paymentId: payload.paymentId,
+      status: 'approved',
+      tid: payload.transactionId,
+      authorizationId: payload.authorizationId,
+      nsu: payload.nsu,
+    })
+  }
+
+  return { status: 200 }
+}
+```
+
+### Bank invoice payment
+
+Handle notifications when a customer pays a bank invoice:
+
+```typescript
+public inbound = async (
+  request: InboundRequest
+): Promise<InboundResponse> => {
+  const payload = request.body as BankInvoiceWebhook
+
+  if (payload.event === 'invoice.paid') {
+    const authorizationRequest = await this.getAuthorizationRequest(
+      payload.merchantReference
+    )
+
+    await this.callback(authorizationRequest, {
+      paymentId: authorizationRequest.paymentId,
+      status: 'approved',
+      tid: payload.transactionId,
+      authorizationId: payload.invoiceId,
+      nsu: payload.receiptNumber,
+    })
+  }
+
+  return { status: 200 }
+}
+```
+
+### 3D Secure completion
+
+Handle notifications after 3D Secure authentication:
+
+```typescript
+public inbound = async (
+  request: InboundRequest
+): Promise<InboundResponse> => {
+  const payload = request.body as ThreeDSecureWebhook
+
+  if (payload.event === '3ds.completed') {
+    const authorizationRequest = await this.getAuthorizationRequest(
+      payload.paymentId
+    )
+
+    const status = payload.authenticated ? 'approved' : 'denied'
+
+    await this.callback(authorizationRequest, {
+      paymentId: payload.paymentId,
+      status,
+      tid: payload.transactionId,
+      authorizationId: payload.authorizationId,
+      nsu: payload.nsu,
+      message: payload.authenticationMessage,
+    })
+  }
+
+  return { status: 200 }
+}
+```
+
+### Chargeback notification
+
+Handle chargeback notifications (informational):
+
+```typescript
+public inbound = async (
+  request: InboundRequest
+): Promise<InboundResponse> => {
+  const payload = request.body as ChargebackWebhook
+
+  if (payload.event === 'payment.chargeback') {
+    // Log chargeback for merchant notification
+    await this.logChargeback({
+      paymentId: payload.paymentId,
+      chargebackId: payload.chargebackId,
+      reason: payload.reason,
+      amount: payload.amount,
+      disputeDeadline: payload.disputeDeadline,
+    })
+
+    // VTEX doesn't require callback for chargebacks
+    // This is for merchant's internal tracking
+  }
+
+  return { status: 200 }
+}
+```
+
+## Security considerations
+
+### Signature validation
+
+Always validate webhook signatures to prevent fraudulent requests:
+
+```typescript
+private validateSignature(
+  request: InboundRequest,
+  secret: string
+): boolean {
+  const signature = request.headers['x-webhook-signature']
+  const timestamp = request.headers['x-webhook-timestamp']
+  const payload = JSON.stringify(request.body)
+
+  // Prevent replay attacks
+  const requestTime = parseInt(timestamp, 10)
+  const currentTime = Math.floor(Date.now() / 1000)
+  if (currentTime - requestTime > 300) { // 5 minute window
+    return false
+  }
+
+  // Verify signature
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.${payload}`)
+    .digest('hex')
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  )
+}
+```
+
+### IP whitelisting
+
+Restrict webhooks to known provider IPs:
+
+```typescript
+private readonly ALLOWED_IPS = [
+  '192.0.2.1',
+  '198.51.100.1',
+]
+
+public inbound = async (
+  request: InboundRequest
+): Promise<InboundResponse> => {
+  const clientIP = request.headers['x-forwarded-for'] || request.headers['x-real-ip']
+
+  if (!this.ALLOWED_IPS.includes(clientIP)) {
+    return { status: 403, body: { error: 'IP not allowed' } }
+  }
+
+  // Process webhook
+  // ...
+}
+```
+
+## Error handling
+
+<AccordionGroup>
+  <Accordion title="Invalid signature">
+    Return 401 for invalid signatures:
+
+    ```typescript
+    if (!this.validateWebhookSignature(request)) {
+      return { 
+        status: 401, 
+        body: { error: 'Invalid webhook signature' } 
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Unknown payment">
+    Return 404 if payment doesn't exist:
+
+    ```typescript
+    const payment = await this.getPayment(payload.paymentId)
+    if (!payment) {
+      return { 
+        status: 404, 
+        body: { error: 'Payment not found' } 
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Duplicate webhook">
+    Return 200 for duplicate webhooks (idempotency):
+
+    ```typescript
+    const processed = await this.isWebhookProcessed(request.requestId)
+    if (processed) {
+      return { status: 200, body: { message: 'Already processed' } }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Processing error">
+    Return 500 for internal errors, provider will retry:
+
+    ```typescript
+    try {
+      await this.processWebhook(payload)
+      return { status: 200 }
+    } catch (error) {
+      console.error('Webhook processing error:', error)
+      return { status: 500, body: { error: 'Internal error' } }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best practices
+
+1. **Always validate signatures** to ensure webhooks are from your payment provider.
+
+2. **Implement idempotency** by tracking processed webhook IDs to handle duplicate deliveries.
+
+3. **Return 200 quickly** - process webhooks asynchronously if they require heavy operations.
+
+4. **Log all webhooks** for debugging and audit trails.
+
+5. **Handle unknown events gracefully** - return 200 even for unrecognized event types.
+
+6. **Use the callback mechanism** to notify VTEX of status changes for pending payments.
+
+7. **Implement retry logic** on your side if callback to VTEX fails.
+
+8. **Monitor webhook health** - alert if webhooks stop arriving or fail frequently.
+
+## Testing webhooks
+
+Test webhook handling in your development environment:
+
+<CodeGroup>
+```bash cURL example
+curl -X POST http://localhost:3000/payment-provider/inbound \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Signature: abc123" \
+  -d '{
+    "event": "payment.approved",
+    "paymentId": "ABC123",
+    "transactionId": "TXN-456",
+    "authorizationId": "AUTH-789",
+    "nsu": "NSU-012"
+  }'
+```
+
+```typescript Test helper
+export const mockWebhook = async (
+  paymentId: string,
+  event: string
+) => {
+  const payload = {
+    event,
+    paymentId,
+    transactionId: `TXN-${Date.now()}`,
+    authorizationId: `AUTH-${Date.now()}`,
+    nsu: `NSU-${Date.now()}`,
+  }
+
+  const signature = crypto
+    .createHmac('sha256', WEBHOOK_SECRET)
+    .update(JSON.stringify(payload))
+    .digest('hex')
+
+  const response = await fetch('/payment-provider/inbound', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Webhook-Signature': signature,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  return response
+}
+```
+</CodeGroup>
+
+## Related routes
+
+- [authorize()](/api/routes/authorize) - Initial authorization that may complete via webhook
+- [settle()](/api/routes/settle) - Settlement that may trigger settlement webhooks
+- [refund()](/api/routes/refund) - Refunds that may generate refund webhooks

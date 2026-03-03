@@ -1,0 +1,514 @@
+---
+title: VTEX IO builders
+description: Learn about the paymentProvider and node builders that power payment connector development
+---
+
+VTEX IO builders are specialized tools that compile, package, and deploy different types of applications. The Payment Provider framework uses two builders that work together to create fully functional payment connectors.
+
+## Overview
+
+Builders transform your source code and configuration files into deployable VTEX IO applications. Each builder handles specific aspects of your connector:
+
+**Location**: `manifest.json:7-11`
+
+```json
+"builders": {
+  "paymentProvider": "1.x",
+  "node": "6.x",
+  "docs": "0.x"
+}
+```
+
+<Info>
+The `docs` builder is optional and used for including documentation in your app. Only `paymentProvider` and `node` are required for payment connectors.
+</Info>
+
+## paymentProvider builder
+
+The `paymentProvider` builder (version 1.x) is specialized for payment connector development.
+
+### What it does
+
+The paymentProvider builder:
+
+<Steps>
+
+<Step title="Reads configuration">
+Parses your `paymentProvider/configuration.json` file to understand supported payment methods and settings.
+</Step>
+
+<Step title="Generates manifest endpoint">
+Automatically creates the `/manifest` endpoint that returns your connector's metadata to VTEX.
+</Step>
+
+<Step title="Generates payment methods endpoint">
+Creates the `/payment-methods` endpoint based on your configuration.
+</Step>
+
+<Step title="Injects policies">
+Adds required policies to your app for Payment Gateway API callbacks.
+</Step>
+
+<Step title="Exposes protocol routes">
+Makes your connector's routes available to the Payment Gateway as a proxy.
+</Step>
+
+</Steps>
+
+### Directory structure
+
+The paymentProvider builder requires this folder structure:
+
+```
+your-payment-app/
+├── manifest.json
+├── node/
+│   ├── index.ts
+│   └── connector.ts
+└── paymentProvider/
+    └── configuration.json
+```
+
+<Warning>
+The `paymentProvider` folder must be at the root level, alongside `node` and `manifest.json`. It cannot be nested inside other directories.
+</Warning>
+
+### configuration.json structure
+
+This file defines your payment connector's capabilities.
+
+**Location**: `paymentProvider/configuration.json`
+
+```json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Diners",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Elo",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Hipercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Payment methods configuration
+
+Each payment method requires:
+
+| Field | Description | Values |
+|-------|-------------|--------|
+| `name` | Payment method name | "Visa", "Mastercard", "BankInvoice", etc. |
+| `allowsSplit` | When split payments are processed | `"onCapture"` or `"onAuthorize"` |
+
+<Tabs>
+<Tab title="onCapture split">
+```json
+{
+  "name": "Visa",
+  "allowsSplit": "onCapture"
+}
+```
+
+Split payment information is sent during the settlement (capture) operation. Use this for card payments where funds are captured after authorization.
+</Tab>
+
+<Tab title="onAuthorize split">
+```json
+{
+  "name": "BankInvoice",
+  "allowsSplit": "onAuthorize"
+}
+```
+
+Split payment information is sent during authorization. Use this for payment methods where funds are captured immediately, like bank invoices.
+</Tab>
+</Tabs>
+
+### Custom fields configuration
+
+Custom fields appear in the VTEX admin when merchants configure your connector.
+
+#### Text field
+
+```json
+{
+  "name": "Client ID",
+  "type": "text"
+}
+```
+
+Simple text input for non-sensitive data.
+
+#### Password field
+
+```json
+{
+  "name": "Secret Token",
+  "type": "password"
+}
+```
+
+Masked input for sensitive data like API keys.
+
+#### Select field
+
+```json
+{
+  "name": "Currency",
+  "type": "select",
+  "options": [
+    {
+      "text": "BRL",
+      "value": "1"
+    },
+    {
+      "text": "USD",
+      "value": "2"
+    }
+  ]
+}
+```
+
+Dropdown with predefined options.
+
+### Additional configuration options
+
+You can add advanced options to `configuration.json`:
+
+```json
+{
+  "name": "MyConnector",
+  "serviceUrl": "/_v/api/my-connector",
+  "implementsOAuth": false,
+  "implementsSplit": false,
+  "usesProviderHeadersName": true,
+  "usesAntifraud": false,
+  "usesBankInvoiceEnglishName": false,
+  "usesSecureProxy": true,
+  "requiresDocument": false,
+  "acceptSplitPartialRefund": false,
+  "usesAutoSettleOptions": false,
+  "paymentMethods": [...],
+  "customFields": [...]
+}
+```
+
+<Tabs>
+<Tab title="OAuth & authentication">
+**implementsOAuth** (default: `false`)
+
+Set to `true` if your connector supports OAuth configuration flow.
+
+**usesProviderHeadersName** (default: `true`)
+
+- `true`: Headers use `x-provider-api-appKey` and `x-provider-api-appToken`
+- `false`: Headers use `x-vtex-api-appKey` and `x-vtex-api-appToken`
+</Tab>
+
+<Tab title="Security">
+**usesSecureProxy** (default: `true`)
+
+- `true`: Non-PCI-certified connectors can use VTEX's Secure Proxy
+- `false`: Connector must be PCI-certified (not allowed for VTEX IO apps)
+
+**requiresDocument** (default: `false`)
+
+- `true`: Adds a card holder document field to the checkout form
+- `false`: Document field not required
+</Tab>
+
+<Tab title="Features">
+**implementsSplit** (default: `false`)
+
+- `true`: Connector can receive split payment recipients
+- `false`: No split payment support
+
+**usesAntifraud** (default: `false`)
+
+- `true`: Can be used with antifraud services
+- `false`: Cannot integrate with antifraud
+
+**acceptSplitPartialRefund** (default: `false`)
+
+- `true`: Can process partial refunds for split payments
+- `false`: Cannot handle partial refunds with splits
+
+**usesAutoSettleOptions** (default: `false`)
+
+- `true`: Merchants can configure auto-settlement behavior
+- `false`: No auto-settlement configuration
+</Tab>
+</Tabs>
+
+### Auto-generated routes
+
+With the paymentProvider builder, you don't need to implement these routes:
+
+- `GET /manifest` - Returns connector metadata
+- `GET /payment-methods` - Returns supported payment methods
+
+They are automatically generated from `configuration.json`.
+
+<Info>
+You can override these routes if needed, but it's recommended to use the auto-generated versions.
+</Info>
+
+## node builder
+
+The `node` builder (version 6.x) provides the runtime environment for your TypeScript/JavaScript code.
+
+### What it does
+
+The node builder:
+
+1. **Compiles TypeScript**: Converts your `.ts` files to JavaScript
+2. **Bundles dependencies**: Packages your `node_modules` for deployment
+3. **Creates service**: Sets up the Node.js service runtime
+4. **Manages clients**: Provides access to VTEX IO clients (VBase, HTTP, etc.)
+5. **Handles scaling**: Manages service replicas and resources
+
+### Required dependencies
+
+Your `node/package.json` must include:
+
+```json
+{
+  "dependencies": {
+    "@vtex/payment-provider": "1.x"
+  },
+  "devDependencies": {
+    "@vtex/api": "6.x"
+  }
+}
+```
+
+**@vtex/payment-provider**
+
+Provides:
+- `PaymentProvider` abstract class
+- `PaymentProviderService` class
+- Type definitions for requests and responses
+- Helper methods for creating responses
+- SecureExternalClient for secure proxy
+
+**@vtex/api**
+
+Provides:
+- Core VTEX IO APIs
+- Client classes (VBase, HTTP, etc.)
+- Service infrastructure
+- Type definitions
+
+### Service configuration
+
+Optionally create `node/service.json` to configure your service:
+
+```json
+{
+  "memory": 256,
+  "ttl": 10,
+  "timeout": 10,
+  "minReplicas": 2,
+  "maxReplicas": 3,
+  "routes": {
+    "authorize": {
+      "path": "/_v/api/my-connector/payments",
+      "public": true
+    },
+    "cancel": {
+      "path": "/_v/api/my-connector/payments/:paymentId/cancellations",
+      "public": true
+    },
+    "settle": {
+      "path": "/_v/api/my-connector/payments/:paymentId/settlements",
+      "public": true
+    },
+    "refund": {
+      "path": "/_v/api/my-connector/payments/:paymentId/refunds",
+      "public": true
+    }
+  }
+}
+```
+
+<Warning>
+Overriding default routes requires updating the `serviceUrl` in `configuration.json`. Prefer using the auto-generated routes.
+</Warning>
+
+## Policies
+
+Both builders work with the policies system to grant your connector necessary permissions.
+
+**Location**: `manifest.json:12-29`
+
+```json
+"policies": [
+  {
+    "name": "vbase-read-write"
+  },
+  {
+    "name": "colossus-fire-event"
+  },
+  {
+    "name": "colossus-write-logs"
+  },
+  {
+    "name": "outbound-access",
+    "attrs": {
+      "host": "heimdall.vtexpayments.com.br",
+      "path": "/api/payment-provider/callback/*"
+    }
+  }
+]
+```
+
+### Essential policies
+
+<Steps>
+
+<Step title="vbase-read-write">
+Allows your connector to read and write to VBase storage. Required for persisting authorization responses for the retry mechanism.
+</Step>
+
+<Step title="colossus-fire-event">
+Enables event firing for logging and monitoring. Useful for tracking payment flows and debugging.
+</Step>
+
+<Step title="colossus-write-logs">
+Permits writing application logs. Essential for troubleshooting production issues.
+</Step>
+
+<Step title="outbound-access">
+Grants access to external endpoints. Required for calling the Payment Gateway callback API and your payment provider's API.
+
+Add additional outbound-access policies for each external domain you need to call:
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "api.payment-provider.com",
+    "path": "/*"
+  }
+}
+```
+</Step>
+
+</Steps>
+
+<Note>
+The paymentProvider builder automatically adds policies for Payment Gateway callbacks. You only need to add policies for calling external payment APIs.
+</Note>
+
+## Build and deployment process
+
+When you run `vtex link` or `vtex publish`, the builders execute in this order:
+
+<Steps>
+
+<Step title="paymentProvider builder runs">
+1. Validates `configuration.json`
+2. Generates manifest and payment-methods routes
+3. Adds required policies
+4. Creates protocol route mappings
+</Step>
+
+<Step title="node builder runs">
+1. Installs dependencies from `package.json`
+2. Compiles TypeScript to JavaScript
+3. Bundles code and dependencies
+4. Creates deployable service package
+</Step>
+
+<Step title="App deployed">
+VTEX IO deploys your connector with:
+- Auto-generated protocol routes
+- Your custom implementation
+- Required policies and permissions
+- Proper scaling configuration
+</Step>
+
+</Steps>
+
+## Best practices
+
+1. **Use default routes**: Avoid overriding routes unless absolutely necessary
+2. **Minimal configuration**: Only add configuration options you actually use
+3. **Version carefully**: Update builder versions cautiously; test thoroughly
+4. **Document custom fields**: Provide clear labels for merchant-facing configuration
+5. **Request minimal policies**: Only add outbound-access for domains you actually call
+6. **Test configuration changes**: Always test in a workspace before publishing
+
+## Common issues
+
+### Missing paymentProvider folder
+
+**Error**: "Builder paymentProvider not found"
+
+**Solution**: Ensure `paymentProvider/configuration.json` exists at the root level.
+
+### Invalid configuration.json
+
+**Error**: Build fails during paymentProvider builder execution
+
+**Solution**: Validate your JSON syntax and ensure all required fields are present.
+
+### Outbound access denied
+
+**Error**: "Request forbidden to host"
+
+**Solution**: Add an outbound-access policy for the external domain in `manifest.json`.
+
+### Route conflicts
+
+**Error**: Routes not working as expected
+
+**Solution**: If overriding routes in `service.json`, ensure you update `serviceUrl` in `configuration.json`.

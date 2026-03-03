@@ -1,0 +1,478 @@
+---
+title: Configuring the connector
+description: Learn how to configure your payment connector using manifest.json and service configuration
+---
+
+This guide covers the configuration files required for a VTEX payment connector, including the `manifest.json` file and service-specific settings.
+
+## Manifest configuration
+
+The `manifest.json` file is the core configuration file for your VTEX IO app. It defines metadata, builders, policies, and dependencies.
+
+### Basic structure
+
+```json manifest.json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.2.0",
+  "title": "Payment Provider Example",
+  "description": "Reference app for Payment-Provider protocol implementers",
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x",
+    "docs": "0.x"
+  },
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "colossus-write-logs"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ],
+  "billingOptions": {
+    "type": "free"
+  }
+}
+```
+
+### Manifest fields
+
+<AccordionGroup>
+
+<Accordion title="Basic metadata">
+
+- **name**: Unique identifier for your app (lowercase, hyphens only)
+- **vendor**: Your VTEX vendor account
+- **version**: Semantic version (MAJOR.MINOR.PATCH)
+- **title**: Human-readable name displayed in admin
+- **description**: Brief description of your connector
+
+```json
+{
+  "name": "my-payment-connector",
+  "vendor": "myvendor",
+  "version": "1.0.0",
+  "title": "My Payment Connector",
+  "description": "Payment connector for MyPaymentGateway"
+}
+```
+
+</Accordion>
+
+<Accordion title="Builders">
+
+Builders define the capabilities of your app:
+
+- **paymentProvider**: Required for payment connectors (use "1.x")
+- **node**: Required for backend logic (use "6.x")
+- **docs**: Optional, for documentation (use "0.x")
+
+```json
+{
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x",
+    "docs": "0.x"
+  }
+}
+```
+
+<Note>
+The `paymentProvider` builder is mandatory for all payment connector apps.
+</Note>
+
+</Accordion>
+
+<Accordion title="Policies">
+
+Policies grant permissions to your app:
+
+**vbase-read-write**
+- Allows reading and writing to VBase (VTEX database)
+- Required for persisting payment data
+
+```json
+{
+  "name": "vbase-read-write"
+}
+```
+
+**colossus-fire-event**
+- Allows firing events to VTEX event system
+- Useful for audit trails and integrations
+
+```json
+{
+  "name": "colossus-fire-event"
+}
+```
+
+**colossus-write-logs**
+- Allows writing to VTEX logs
+- Essential for debugging and monitoring
+
+```json
+{
+  "name": "colossus-write-logs"
+}
+```
+
+**outbound-access**
+- Allows HTTP requests to external hosts
+- Required for callbacks and payment gateway communication
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "heimdall.vtexpayments.com.br",
+    "path": "/api/payment-provider/callback/*"
+  }
+}
+```
+
+<Warning>
+You must specify each external host your connector needs to communicate with in the `outbound-access` policy.
+</Warning>
+
+</Accordion>
+
+<Accordion title="Billing options">
+
+Defines the billing model for your app:
+
+```json
+{
+  "billingOptions": {
+    "type": "free"
+  }
+}
+```
+
+Available types:
+- `"free"`: No charge
+- `"fixed"`: Fixed monthly fee
+- `"variable"`: Usage-based pricing
+
+</Accordion>
+
+</AccordionGroup>
+
+### Adding external API access
+
+If your connector needs to communicate with external payment gateways, add them to the `outbound-access` policy:
+
+```json
+{
+  "policies": [
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "api.payment-gateway.com",
+        "path": "*"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "sandbox.payment-gateway.com",
+        "path": "*"
+      }
+    }
+  ]
+}
+```
+
+## Node package configuration
+
+The `node/package.json` file defines Node.js dependencies and scripts.
+
+### Required dependencies
+
+```json node/package.json
+{
+  "dependencies": {
+    "@vtex/payment-provider": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^12.0.0",
+    "@vtex/api": "6.45.6",
+    "typescript": "3.9.7"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit --pretty"
+  }
+}
+```
+
+### Key dependencies
+
+<Steps>
+
+<Step title="@vtex/payment-provider">
+
+The core payment provider SDK:
+- Provides `PaymentProvider` base class
+- Includes request/response types
+- Offers helper methods for responses
+
+```json
+"@vtex/payment-provider": "^1.4.0"
+```
+
+</Step>
+
+<Step title="@vtex/api">
+
+VTEX IO API SDK (dev dependency):
+- Provides VBase client
+- Includes typing for VTEX services
+- Required for context and client access
+
+```json
+"@vtex/api": "6.45.6"
+```
+
+</Step>
+
+<Step title="TypeScript">
+
+TypeScript compiler:
+- Version 3.9.7 recommended
+- Required for type checking
+- Used in lint scripts
+
+```json
+"typescript": "3.9.7"
+```
+
+</Step>
+
+</Steps>
+
+### Adding additional dependencies
+
+You can add other npm packages as needed:
+
+```json
+{
+  "dependencies": {
+    "@vtex/payment-provider": "^1.4.0",
+    "axios": "^0.21.1",
+    "ramda": "^0.25.0"
+  }
+}
+```
+
+<Note>
+Keep dependencies minimal to reduce bundle size and improve performance.
+</Note>
+
+## TypeScript configuration
+
+Create a `node/tsconfig.json` file for TypeScript compiler settings:
+
+```json node/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "commonjs",
+    "lib": ["es2017"],
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+## Environment-specific configuration
+
+### Development vs production
+
+Use the `this.isTestSuite` flag to differentiate between test and production environments:
+
+```typescript
+export default class MyConnector extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    if (this.isTestSuite) {
+      // Test suite logic - simplified responses
+      return Authorizations.approve(authorization, {
+        authorizationId: 'test-auth-id',
+        nsu: 'test-nsu',
+        tid: 'test-tid',
+      })
+    }
+    
+    // Production logic - real payment gateway integration
+    const result = await this.paymentGateway.authorize(authorization)
+    return this.mapToVtexResponse(result)
+  }
+}
+```
+
+### Accessing custom configuration
+
+Access custom fields configured in `configuration.json` through the context:
+
+```typescript
+export default class MyConnector extends PaymentProvider {
+  private getClientId(): string {
+    return this.context.vtex.settings['Client ID']
+  }
+  
+  private getSecretToken(): string {
+    return this.context.vtex.settings['Secret Token']
+  }
+  
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    const clientId = this.getClientId()
+    const secretToken = this.getSecretToken()
+    
+    // Use credentials to authenticate with payment gateway
+  }
+}
+```
+
+## Configuration validation
+
+Validate your configuration before deployment:
+
+<Steps>
+
+<Step title="Validate manifest.json">
+
+Use the VTEX IO CLI to validate your manifest:
+
+```bash
+vtex validate manifest.json
+```
+
+</Step>
+
+<Step title="Type check your code">
+
+Run TypeScript compiler to check for errors:
+
+```bash
+cd node && npm run lint
+```
+
+</Step>
+
+<Step title="Test locally">
+
+Link your app in a development workspace:
+
+```bash
+vtex link
+```
+
+</Step>
+
+</Steps>
+
+## Common configuration issues
+
+<AccordionGroup>
+
+<Accordion title="Missing outbound-access policy">
+
+**Error**: Cannot reach external API
+
+**Solution**: Add the external host to `outbound-access` policy:
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "api.payment-gateway.com",
+    "path": "*"
+  }
+}
+```
+
+</Accordion>
+
+<Accordion title="VBase permission denied">
+
+**Error**: Cannot read/write to VBase
+
+**Solution**: Add `vbase-read-write` policy:
+
+```json
+{
+  "name": "vbase-read-write"
+}
+```
+
+</Accordion>
+
+<Accordion title="Callback not working">
+
+**Error**: Callbacks to VTEX fail
+
+**Solution**: Ensure callback URL is in `outbound-access`:
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "heimdall.vtexpayments.com.br",
+    "path": "/api/payment-provider/callback/*"
+  }
+}
+```
+
+</Accordion>
+
+<Accordion title="TypeScript errors">
+
+**Error**: Type errors during compilation
+
+**Solution**: Ensure all required type packages are installed:
+
+```bash
+cd node && npm install --save-dev @types/node @vtex/api
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Payment methods" icon="credit-card" href="/guides/payment-methods">
+    Configure supported payment methods in configuration.json
+  </Card>
+  <Card title="Creating connector" icon="code" href="/guides/creating-connector">
+    Learn how to create a connector from scratch
+  </Card>
+</CardGroup>

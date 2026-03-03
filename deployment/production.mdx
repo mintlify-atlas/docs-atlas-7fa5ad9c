@@ -1,0 +1,412 @@
+---
+title: Production deployment and configuration
+description: Deploy your payment connector to production and configure it for merchant use
+---
+
+Once your payment connector is published to the VTEX App Store, merchants can install and configure it in their production environments.
+
+## Installation process
+
+Merchants install your connector through the VTEX App Store or CLI:
+
+### Via App Store
+
+<Steps>
+  <Step title="Find the connector">
+    Merchants navigate to [apps.vtex.com](https://apps.vtex.com) and search for your connector.
+  </Step>
+
+  <Step title="Install the app">
+    Click **Install** and confirm the installation on the desired account.
+  </Step>
+
+  <Step title="Wait for installation">
+    The installation process takes approximately 1 hour to complete on the master workspace.
+  </Step>
+</Steps>
+
+### Via CLI
+
+Merchants can also install using the VTEX CLI:
+
+```bash
+vtex install {vendor}.{app-name}@{version}
+```
+
+For example:
+
+```bash
+vtex install vtex.payment-provider-example@1.0.0
+```
+
+## Configuring the connector
+
+After installation, merchants need to configure the payment connector in the VTEX Admin:
+
+<Steps>
+  <Step title="Access gateway affiliations">
+    Navigate to the connector configuration page:
+
+    ```
+    https://{account}.myvtex.com/admin/pci-gateway/#/affiliations/{vendor}-{appName}-{appMajor}/
+    ```
+
+    <Info>
+    The URL format is: `{vendor}-{appName}-{appMajor}`
+    
+    For example: `vtex-payment-provider-test-v0`
+    </Info>
+  </Step>
+
+  <Step title="Create new affiliation">
+    Click **New affiliation** to create a configuration.
+
+    ![New configuration production](https://user-images.githubusercontent.com/27698855/116406925-91d7ab80-a807-11eb-9a26-44e2f418df9d.png)
+  </Step>
+
+  <Step title="Configure custom fields">
+    Fill in the custom fields defined in your `configuration.json`:
+
+    - **Client ID**: API client identifier
+    - **Secret Token**: API authentication token (masked)
+    - **Currency**: Select the currency for transactions
+
+    These fields correspond to your connector's configuration:
+
+    ```json paymentProvider/configuration.json
+    {
+      "customFields": [
+        {
+          "name": "Client ID",
+          "type": "text"
+        },
+        {
+          "name": "Secret Token",
+          "type": "password"
+        },
+        {
+          "name": "Currency",
+          "type": "select",
+          "options": [
+            {"text": "BRL", "value": "1"},
+            {"text": "USD", "value": "2"}
+          ]
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Set environment mode">
+    Choose the environment:
+
+    - **Production**: Live transactions with real money
+    - **Test**: Test transactions using test mode credentials
+
+    <Warning>
+    Always test in **Test mode** first before switching to **Production mode**.
+    </Warning>
+  </Step>
+
+  <Step title="Save configuration">
+    Click **Save** to create the affiliation.
+  </Step>
+</Steps>
+
+## Testing mode configuration
+
+For testing in production environments without processing real payments:
+
+<Steps>
+  <Step title="Enable test mode">
+    In the affiliation configuration, set the toggle to **Test**.
+  </Step>
+
+  <Step title="Save and refresh">
+    Click **Save** and refresh the page.
+  </Step>
+
+  <Step title="Configure workspace">
+    Re-enter the configuration page. A new **workspace** field appears.
+
+    Set the workspace to test your connector:
+    - `master` - Uses the installed version on master
+    - `{workspace-name}` - Uses a linked version in a development workspace
+
+    ![New configuration test](https://user-images.githubusercontent.com/27698855/116406935-94d29c00-a807-11eb-80c6-190e8fd6d373.png)
+  </Step>
+</Steps>
+
+<Info>
+The workspace feature allows merchants to test new versions of your connector before they're officially released.
+</Info>
+
+## Configuring payment conditions
+
+After creating the affiliation, merchants need to configure payment conditions:
+
+<Steps>
+  <Step title="Access payment conditions">
+    Navigate to:
+    
+    ```
+    https://{account}.myvtex.com/admin/pci-gateway/#/payment-conditions
+    ```
+  </Step>
+
+  <Step title="Create payment condition">
+    1. Click **New payment condition**
+    2. Select a payment method supported by your connector (e.g., Visa, Mastercard)
+    3. Choose your connector from the affiliation dropdown
+    4. Configure payment rules:
+       - Installment options
+       - Special conditions
+       - Anti-fraud settings (if supported)
+  </Step>
+
+  <Step title="Wait for propagation">
+    Wait approximately **10 minutes** for the payment condition to appear in checkout.
+
+    <Note>
+    VTEX caches payment configurations. Changes may take up to 10 minutes to propagate to the checkout.
+    </Note>
+  </Step>
+</Steps>
+
+## Placing production orders
+
+Merchants can now process orders using your connector:
+
+<Warning>
+Ensure you have products for sale in your store before testing the checkout flow.
+</Warning>
+
+<Steps>
+  <Step title="Add products to cart">
+    Navigate to your store and add products to the shopping cart.
+  </Step>
+
+  <Step title="Proceed to checkout">
+    Go to checkout and select your payment method.
+  </Step>
+
+  <Step title="Enter payment details">
+    Fill in card information or payment method details.
+
+    For testing, use the [test card numbers](/deployment/testing#test-card-numbers) if in test mode.
+  </Step>
+
+  <Step title="Complete purchase">
+    Submit the order and verify:
+    - Payment authorization succeeds
+    - Order is created correctly
+    - Transaction appears in gateway logs
+  </Step>
+</Steps>
+
+## Production deployment requirements
+
+### Account allowlist
+
+<Warning>
+The account MUST BE ALLOWED to use IO Connectors. Submit a request using the "Allow Account to test" workflow in the `#provider-review` Slack channel.
+</Warning>
+
+### Payment method approval
+
+<Warning>
+For processing NEW payment methods, their creation must be requested from VTEX.
+</Warning>
+
+Contact VTEX support to enable new payment methods not currently available in the platform.
+
+### Security requirements
+
+Your connector must meet VTEX security standards:
+
+#### Secure Proxy for non-PCI certified connectors
+
+If you're not PCI-certified, use the Secure Proxy feature:
+
+```typescript
+export class MyPCICertifiedClient extends SecureExternalClient {
+  constructor(protected context: IOContext, options?: InstanceOptions) {
+    super('http://my-pci-certified-domain.com', context, options)
+  }
+
+  public myPCIEndpoint = (cardRequest: CardAuthorization) => {
+    return this.http.post(
+      'my-pci-endpoint',
+      {
+        holder: cardRequest.holderToken,
+        number: cardRequest.numberToken,
+        expiration: cardRequest.expiration,
+        csc: cardRequest.cscToken
+      },
+      {
+        headers: {
+          Authorization: 'my-pci-endpoint-authorization',
+        },
+        secureProxy: cardRequest.secureProxyUrl,
+      } as RequestConfig
+    )
+  }
+}
+```
+
+<Info>
+- The endpoint must be allowed by VTEX Secure Proxy (requires submitting AOC)
+- Only `application/json` and `application/x-www-form-urlencoded` content types are supported
+- Apps implemented within VTEX IO cannot have secureProxy disabled
+</Info>
+
+#### Required configuration options
+
+Set appropriate security options in `configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "usesSecureProxy": true,
+  "requiresDocument": false,
+  "usesProviderHeadersName": true,
+  "implementsOAuth": false,
+  "implementsSplit": false,
+  "usesAntifraud": false,
+  "acceptSplitPartialRefund": false,
+  "usesAutoSettleOptions": false
+}
+```
+
+### Configuration options reference
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `usesSecureProxy` | `true` | Use VTEX Secure Proxy (required for non-PCI certified) |
+| `requiresDocument` | `false` | Require card holder document in checkout |
+| `usesProviderHeadersName` | `true` | Use provider-specific header names for API credentials |
+| `implementsOAuth` | `false` | Support OAuth configuration flow |
+| `implementsSplit` | `false` | Support payment split with recipients |
+| `usesAntifraud` | `false` | Can be used with anti-fraud services |
+| `acceptSplitPartialRefund` | `false` | Support partial refund with payment split |
+| `usesAutoSettleOptions` | `false` | Show auto-settlement configuration options |
+
+## Monitoring and maintenance
+
+### Transaction monitoring
+
+Monitor transaction success rates and errors:
+
+1. **Gateway logs**: Check VTEX Admin > Payments > Transactions
+2. **Application logs**: Use VTEX IO logging to track connector behavior
+3. **Error rates**: Monitor failed authorizations and identify patterns
+
+### Performance optimization
+
+Optimize your connector for production:
+
+```json node/service.json
+{
+  "memory": 256,
+  "ttl": 10,
+  "timeout": 10,
+  "minReplicas": 2,
+  "maxReplicas": 3
+}
+```
+
+<Info>
+Adjust `minReplicas` and `maxReplicas` based on transaction volume. Higher values provide better availability but increase costs.
+</Info>
+
+### Updating production versions
+
+To update your connector in production:
+
+<Steps>
+  <Step title="Release new version">
+    ```bash
+    vtex release patch stable
+    vtex publish
+    ```
+  </Step>
+
+  <Step title="Test in workspace">
+    Merchants can test the new version using the workspace configuration before installing.
+  </Step>
+
+  <Step title="Install update">
+    ```bash
+    vtex install {vendor}.{app-name}@{new-version}
+    ```
+  </Step>
+
+  <Step title="Verify deployment">
+    Wait ~1 hour and verify transactions are processing correctly.
+  </Step>
+</Steps>
+
+<Warning>
+Major version updates may require merchants to reconfigure their affiliation settings. Communicate breaking changes clearly.
+</Warning>
+
+## Troubleshooting
+
+### Common issues
+
+#### Connector not appearing in affiliations
+
+- Verify the app is installed: `vtex list`
+- Wait the full hour for installation to complete
+- Check that `paymentProvider` builder is in `manifest.json`
+
+#### Workspace configuration not appearing
+
+- Ensure test mode is enabled
+- Save the configuration and refresh the page
+- Re-enter the affiliation configuration
+
+#### Payment method not showing in checkout
+
+- Wait 10 minutes for cache to clear
+- Verify payment condition is configured correctly
+- Check that payment method is enabled in `configuration.json`
+
+#### Authorization failures
+
+- Check custom field credentials are correct
+- Verify external API endpoints are accessible
+- Review application logs for error details
+- Ensure `outbound-access` policies include all required hosts
+
+## Support and maintenance
+
+Provide ongoing support for merchants using your connector:
+
+### Documentation
+
+- Maintain up-to-date setup guides
+- Document all custom fields and their usage
+- Provide troubleshooting steps
+- Include contact information for support
+
+### Updates
+
+- Release regular security patches
+- Fix bugs reported by merchants
+- Add new features based on feedback
+- Maintain compatibility with VTEX platform updates
+
+### Communication
+
+- Notify merchants of upcoming changes
+- Provide migration guides for breaking changes
+- Maintain a changelog for all releases
+- Respond promptly to support requests
+
+## Next steps
+
+- Monitor transaction performance and success rates
+- Gather merchant feedback for improvements
+- Plan feature roadmap based on market needs
+- Stay updated with VTEX Payment Provider Protocol changes

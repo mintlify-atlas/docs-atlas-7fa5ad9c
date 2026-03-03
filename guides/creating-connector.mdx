@@ -1,0 +1,298 @@
+---
+title: Creating a payment connector
+description: Learn how to create a payment connector from scratch using the VTEX Payment Provider framework
+---
+
+This guide walks you through creating a payment connector from scratch using the VTEX Payment Provider framework. You'll learn how to set up the project structure, extend the PaymentProvider class, and implement the core functionality.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- Node.js 12.x or higher installed
+- VTEX IO CLI installed and configured
+- Basic understanding of TypeScript
+- Familiarity with payment processing concepts
+
+## Project structure
+
+A payment connector app requires the following structure:
+
+```
+my-payment-connector/
+├── manifest.json
+├── node/
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── index.ts
+│   └── connector.ts
+└── paymentProvider/
+    └── configuration.json
+```
+
+## Setting up the manifest
+
+<Steps>
+
+<Step title="Create the manifest.json file">
+
+The `manifest.json` file defines your app's metadata and required permissions.
+
+```json manifest.json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.2.0",
+  "title": "Payment Provider Example",
+  "description": "Reference app for Payment-Provider protocol implementers",
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x",
+    "docs": "0.x"
+  },
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "colossus-write-logs"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ],
+  "billingOptions": {
+    "type": "free"
+  }
+}
+```
+
+<Note>
+The `paymentProvider` builder is required for payment connector apps. The `vbase-read-write` policy allows you to persist data, and `outbound-access` enables callback functionality.
+</Note>
+
+</Step>
+
+<Step title="Install dependencies">
+
+Create a `package.json` in the `node/` directory with the required dependencies:
+
+```json node/package.json
+{
+  "dependencies": {
+    "@vtex/payment-provider": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^12.0.0",
+    "@vtex/api": "6.45.6",
+    "typescript": "3.9.7"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit --pretty"
+  }
+}
+```
+
+</Step>
+
+</Steps>
+
+## Creating the connector class
+
+<Steps>
+
+<Step title="Set up the service entry point">
+
+Create `node/index.ts` to initialize the payment provider service:
+
+```typescript node/index.ts
+import { PaymentProviderService } from '@vtex/payment-provider'
+
+import TestSuiteApprover from './connector'
+
+export default new PaymentProviderService({
+  connector: TestSuiteApprover,
+})
+```
+
+This file exports a `PaymentProviderService` instance with your connector class.
+
+</Step>
+
+<Step title="Extend the PaymentProvider class">
+
+Create `node/connector.ts` and extend the `PaymentProvider` base class:
+
+```typescript node/connector.ts
+import {
+  AuthorizationRequest,
+  AuthorizationResponse,
+  CancellationRequest,
+  CancellationResponse,
+  PaymentProvider,
+  RefundRequest,
+  RefundResponse,
+  SettlementRequest,
+  SettlementResponse,
+} from '@vtex/payment-provider'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  // Implementation methods will go here
+  
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    throw new Error('Not implemented')
+  }
+
+  public async cancel(
+    cancellation: CancellationRequest
+  ): Promise<CancellationResponse> {
+    throw new Error('Not implemented')
+  }
+
+  public async refund(refund: RefundRequest): Promise<RefundResponse> {
+    throw new Error('Not implemented')
+  }
+
+  public async settle(
+    settlement: SettlementRequest
+  ): Promise<SettlementResponse> {
+    throw new Error('Not implemented')
+  }
+
+  public inbound: undefined
+}
+```
+
+<Note>
+The `PaymentProvider` class provides access to:
+- `this.context` - VTEX IO context with clients and configuration
+- `this.isTestSuite` - Boolean flag indicating if requests come from VTEX test suite
+- `this.callback()` - Method to send asynchronous responses
+</Note>
+
+</Step>
+
+<Step title="Access context and clients">
+
+The `PaymentProvider` class provides access to VTEX IO context:
+
+```typescript
+export default class TestSuiteApprover extends PaymentProvider {
+  private async saveData(key: string, data: any) {
+    // Access VBase client for data persistence
+    await this.context.clients.vbase.saveJSON('bucket-name', key, data)
+  }
+  
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Check if request is from test suite
+    if (this.isTestSuite) {
+      // Handle test suite logic
+    }
+    
+    // Your implementation here
+  }
+}
+```
+
+</Step>
+
+</Steps>
+
+## Implementing helper functions
+
+Create utility functions to support your connector implementation:
+
+```typescript node/utils.ts
+export const randomString = () => {
+  return Math.random()
+    .toString(36)
+    .substring(7)
+}
+
+export const randomUrl = () => {
+  return `https://${randomString()}.com`
+}
+```
+
+## Using VBase for persistence
+
+VBase allows you to persist data between requests. This is useful for handling asynchronous payment flows:
+
+```typescript
+import { VBase } from '@vtex/api'
+import { AuthorizationResponse } from '@vtex/payment-provider'
+
+const authorizationsBucket = 'authorizations'
+
+const persistAuthorizationResponse = async (
+  vbase: VBase,
+  resp: AuthorizationResponse
+) => vbase.saveJSON(authorizationsBucket, resp.paymentId, resp)
+
+const getPersistedAuthorizationResponse = async (
+  vbase: VBase,
+  paymentId: string
+) => vbase.getJSON<AuthorizationResponse | undefined>(
+  authorizationsBucket,
+  paymentId,
+  true
+)
+```
+
+<Warning>
+Make sure to include the `vbase-read-write` policy in your `manifest.json` to use VBase.
+</Warning>
+
+## Testing your connector
+
+VTEX provides a test suite to validate your connector implementation:
+
+1. Link your app in a development workspace:
+   ```bash
+   vtex link
+   ```
+
+2. Run the payment provider test suite:
+   ```bash
+   vtex test payment-provider
+   ```
+
+3. The test suite will validate all required routes and flows
+
+<Accordion title="Common test failures and solutions">
+
+**Authorization timeout**
+- Ensure your `authorize` method returns a response within the timeout period
+- Use `Authorizations.pending()` for async flows
+
+**Missing callback**
+- Call `this.callback()` for pending transactions
+- Ensure the `outbound-access` policy is configured
+
+**Invalid response format**
+- Use the helper methods from the `@vtex/payment-provider` package
+- Validate your response matches the expected schema
+
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Implementing routes" icon="route" href="/guides/implementing-routes">
+    Learn how to implement the required payment routes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure your connector with manifest and service settings
+  </Card>
+</CardGroup>

@@ -1,0 +1,335 @@
+---
+title: Publishing to VTEX App Store
+description: Learn how to submit and publish your payment provider connector to the VTEX App Store
+---
+
+After thoroughly testing your payment connector, you can publish it to the VTEX App Store to make it available to all VTEX merchants.
+
+## Prerequisites
+
+Before publishing your connector, ensure you have:
+
+<Steps>
+  <Step title="Completed testing">
+    Your connector must pass all test suite requirements and have been tested with real transactions in a test environment.
+
+    See [Testing your connector](/deployment/testing) for details.
+  </Step>
+
+  <Step title="Added billing options">
+    Your `manifest.json` must include the `billingOptions` field to make your connector available to all accounts.
+
+    <Warning>
+    If you want to make your connector available to all accounts, you MUST have the billing options field in your manifest.
+    </Warning>
+  </Step>
+
+  <Step title="Implemented required routes">
+    All required Payment Provider Protocol routes must be implemented:
+    - `/manifest`
+    - `/payment-methods`
+    - `/payments` (authorize)
+    - `/settlements`
+    - `/refunds`
+    - `/cancellations`
+    - `/inbounds` (optional)
+  </Step>
+</Steps>
+
+## Configuring billing options
+
+Add the `billingOptions` field to your `manifest.json`:
+
+```json manifest.json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.2.0",
+  "title": "Payment Provider Example",
+  "description": "Reference app for Payment-Provider protocol implementers",
+  "billingOptions": {
+    "type": "free"
+  }
+}
+```
+
+### Billing types
+
+You can choose from different billing models:
+
+| Type | Description |
+| --- | --- |
+| `free` | No cost to merchants |
+| `fixed` | Fixed monthly/yearly fee |
+| `variable` | Usage-based pricing |
+
+<Info>
+For paid connectors, you'll need to provide additional billing configuration. Contact VTEX support for details on implementing paid billing models.
+</Info>
+
+## App Store submission process
+
+The publication process follows the standard VTEX App Store submission workflow:
+
+<Steps>
+  <Step title="Prepare your app metadata">
+    Ensure your `manifest.json` contains complete information:
+
+    ```json manifest.json
+    {
+      "name": "payment-provider-example",
+      "vendor": "vtex",
+      "version": "1.0.0",
+      "title": "Payment Provider Example",
+      "description": "Reference app for Payment-Provider protocol implementers",
+      "builders": {
+        "paymentProvider": "1.x",
+        "node": "6.x",
+        "docs": "0.x"
+      },
+      "billingOptions": {
+        "type": "free"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Create documentation">
+    Prepare comprehensive documentation for your connector:
+
+    - Setup instructions
+    - Configuration parameters (custom fields)
+    - Supported payment methods
+    - Testing guidelines
+    - Support contact information
+
+    Use the `docs` builder to include documentation in your app.
+  </Step>
+
+  <Step title="Publish a stable version">
+    Release a stable version (not beta or pre-release):
+
+    ```bash
+    vtex release patch stable
+    vtex publish
+    ```
+
+    <Note>
+    Follow semantic versioning:
+    - **Patch** (1.0.x): Bug fixes and minor updates
+    - **Minor** (1.x.0): New features, backward compatible
+    - **Major** (x.0.0): Breaking changes
+    </Note>
+  </Step>
+
+  <Step title="Submit for review">
+    Submit your app to the VTEX App Store following the official process:
+
+    1. Go to the [VTEX App Store submission page](https://developers.vtex.com/vtex-developer-docs/docs/vtex-io-documentation-submitting-your-app-in-the-vtex-app-store)
+    2. Fill out the submission form with:
+       - App details
+       - Description and screenshots
+       - Support contact
+       - Terms of service (if applicable)
+    3. Submit for VTEX homologation
+  </Step>
+
+  <Step title="Complete homologation">
+    VTEX will review your connector to ensure:
+
+    - It follows the Payment Provider Protocol correctly
+    - All required routes are implemented
+    - Security best practices are followed
+    - Documentation is complete and accurate
+
+    <Info>
+    The homologation process may take several days to weeks depending on the complexity of your connector.
+    </Info>
+  </Step>
+
+  <Step title="Launch on App Store">
+    After homologation approval, your app will be published to the VTEX App Store at:
+
+    ```
+    https://apps.vtex.com
+    ```
+
+    Merchants can then discover and install your connector.
+  </Step>
+</Steps>
+
+## Custom fields configuration
+
+Define the configuration fields that merchants will see when setting up your connector in `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Custom field types
+
+| Type | Description |
+| --- | --- |
+| `text` | Single-line text input |
+| `password` | Masked password input |
+| `select` | Dropdown with predefined options |
+| `toggle` | Boolean on/off switch |
+
+<Warning>
+Use the `password` type for sensitive credentials like API keys and tokens. These values will be encrypted and masked in the admin interface.
+</Warning>
+
+## Required policies
+
+Ensure your `manifest.json` includes all necessary policies:
+
+```json manifest.json
+{
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "colossus-write-logs"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ]
+}
+```
+
+### Common policies
+
+| Policy | Purpose |
+| --- | --- |
+| `vbase-read-write` | Store authorization responses for test suite |
+| `colossus-fire-event` | Send events to VTEX systems |
+| `colossus-write-logs` | Write application logs |
+| `outbound-access` | Make HTTP requests to external services |
+
+<Note>
+Add additional `outbound-access` policies for each external API your connector needs to communicate with (e.g., payment processor APIs).
+</Note>
+
+## Version management
+
+### Releasing updates
+
+To release updates to your published connector:
+
+```bash
+# For bug fixes
+vtex release patch stable
+
+# For new features
+vtex release minor stable
+
+# For breaking changes
+vtex release major stable
+
+# Publish the new version
+vtex publish
+```
+
+### Deprecating old versions
+
+When releasing breaking changes:
+
+1. Publish the new major version
+2. Communicate changes to existing users
+3. Provide migration guide in documentation
+4. Maintain support for previous major version during transition period
+
+<Warning>
+Merchants using your connector will need to manually update to new major versions. Ensure backward compatibility for minor and patch releases.
+</Warning>
+
+## Post-publication checklist
+
+After your connector is published:
+
+<Steps>
+  <Step title="Monitor installations">
+    Track which merchants install your connector and monitor for issues.
+  </Step>
+
+  <Step title="Provide support">
+    Set up support channels for merchants using your connector:
+    - Email support
+    - Documentation site
+    - Issue tracking
+  </Step>
+
+  <Step title="Gather feedback">
+    Collect feedback from merchants to improve your connector:
+    - Feature requests
+    - Bug reports
+    - Configuration improvements
+  </Step>
+
+  <Step title="Release updates">
+    Regularly update your connector with:
+    - Bug fixes
+    - Security patches
+    - New features
+    - Performance improvements
+  </Step>
+</Steps>
+
+## Next steps
+
+Once published, merchants can install and configure your connector:
+
+- Review [Production deployment](/deployment/production) for merchant setup instructions
+- Monitor your connector's performance and transaction success rates
+- Maintain compliance with PCI DSS and VTEX security requirements
+
+## Additional resources
+
+- [VTEX App Store submission guide](https://developers.vtex.com/vtex-developer-docs/docs/vtex-io-documentation-submitting-your-app-in-the-vtex-app-store)
+- [Payment Provider Protocol specification](https://help.vtex.com/en/tutorial/payment-provider-protocol)
+- [VTEX IO documentation](https://developers.vtex.com/vtex-developer-docs/docs/welcome)

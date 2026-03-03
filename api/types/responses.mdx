@@ -1,0 +1,381 @@
+---
+title: Response types
+description: TypeScript interfaces for payment operation responses in the VTEX Payment Provider framework
+---
+
+All response types are imported from the `@vtex/payment-provider` package and represent your connector's responses to VTEX's Payment Gateway.
+
+## AuthorizationResponse
+
+Response returned from the `authorize()` method. Use the helper methods from the `Authorizations` namespace to construct responses.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment (from the request)
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Payment status
+  
+  <Expandable title="Possible values">
+    - `approved` - Payment was successfully authorized
+    - `denied` - Payment was declined
+    - `undefined` - Payment is pending (async approval, bank invoice, redirect)
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tid" type="string">
+  Transaction identifier from your payment provider
+</ResponseField>
+
+<ResponseField name="authorizationId" type="string">
+  Authorization identifier for approved payments (required when status is `approved`)
+</ResponseField>
+
+<ResponseField name="nsu" type="string">
+  Unique sequential number from your payment provider
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Response code from your payment provider
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable message about the transaction result
+</ResponseField>
+
+<ResponseField name="delayToCancel" type="number">
+  Time in milliseconds before automatic cancellation (for pending payments)
+</ResponseField>
+
+<ResponseField name="paymentUrl" type="string">
+  Payment URL for bank invoice flows
+</ResponseField>
+
+<ResponseField name="redirectUrl" type="string">
+  Redirect URL for redirect-based payment flows
+</ResponseField>
+
+<ResponseField name="delayToAutoSettle" type="number">
+  Time in milliseconds before automatic settlement
+</ResponseField>
+
+<ResponseField name="delayToAutoSettleAfterAntifraud" type="number">
+  Time in milliseconds before auto-settlement after antifraud check
+</ResponseField>
+
+### Helper methods
+
+Use the `Authorizations` namespace to construct properly formatted responses:
+
+<Tabs>
+  <Tab title="Approved">
+    ```typescript
+    import { Authorizations } from '@vtex/payment-provider'
+    
+    return Authorizations.approve(request, {
+      authorizationId: 'auth_123456',
+      nsu: 'nsu_789012',
+      tid: 'tid_345678'
+    })
+    ```
+    
+    Returns status `approved` with the provided identifiers.
+  </Tab>
+  
+  <Tab title="Denied">
+    ```typescript
+    return Authorizations.deny(request, {
+      tid: 'tid_345678',
+      code: 'INSUFFICIENT_FUNDS',
+      message: 'Card has insufficient funds'
+    })
+    ```
+    
+    Returns status `denied` with optional error details.
+  </Tab>
+  
+  <Tab title="Pending">
+    ```typescript
+    return Authorizations.pending(request, {
+      tid: 'tid_345678',
+      delayToCancel: 300000 // 5 minutes
+    })
+    ```
+    
+    Returns status `undefined` for async processing. Use the callback mechanism to send the final result.
+  </Tab>
+  
+  <Tab title="Bank invoice">
+    ```typescript
+    return Authorizations.pendingBankInvoice(request, {
+      paymentUrl: 'https://provider.com/invoice/123',
+      tid: 'tid_345678',
+      delayToCancel: 86400000 // 24 hours
+    })
+    ```
+    
+    Returns status `undefined` with a payment URL for bank invoice generation.
+  </Tab>
+  
+  <Tab title="Redirect">
+    ```typescript
+    return Authorizations.redirect(request, {
+      redirectUrl: 'https://provider.com/checkout/123',
+      tid: 'tid_345678',
+      delayToCancel: 600000 // 10 minutes
+    })
+    ```
+    
+    Returns status `undefined` with a redirect URL for external payment flows.
+  </Tab>
+</Tabs>
+
+<Note>
+  When returning a pending response, you must use the `callback()` method to send the final authorization result asynchronously.
+</Note>
+
+---
+
+## CancellationResponse
+
+Response returned from the `cancel()` method.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment (from the request)
+</ResponseField>
+
+<ResponseField name="cancellationId" type="string">
+  Cancellation identifier from your payment provider (required for approved cancellations)
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Response code from your payment provider
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable message about the cancellation result
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Request identifier (from the request)
+</ResponseField>
+
+### Helper methods
+
+<Tabs>
+  <Tab title="Approve">
+    ```typescript
+    import { Cancellations } from '@vtex/payment-provider'
+    
+    return Cancellations.approve(request, {
+      cancellationId: 'cancel_123456'
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Deny">
+    ```typescript
+    return Cancellations.deny(request, {
+      code: 'ALREADY_SETTLED',
+      message: 'Cannot cancel settled payment'
+    })
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## RefundResponse
+
+Response returned from the `refund()` method.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment (from the request)
+</ResponseField>
+
+<ResponseField name="refundId" type="string">
+  Refund identifier from your payment provider (required for approved refunds)
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Response code from your payment provider
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable message about the refund result
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Request identifier (from the request)
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  Actual refunded amount in cents (may differ from requested amount)
+</ResponseField>
+
+### Helper methods
+
+<Tabs>
+  <Tab title="Approve">
+    ```typescript
+    import { Refunds } from '@vtex/payment-provider'
+    
+    return Refunds.approve(request, {
+      refundId: 'refund_123456',
+      value: request.value
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Deny">
+    ```typescript
+    return Refunds.deny(request, {
+      code: 'REFUND_WINDOW_EXPIRED',
+      message: 'Refund period has expired'
+    })
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## SettlementResponse
+
+Response returned from the `settle()` method.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment (from the request)
+</ResponseField>
+
+<ResponseField name="settleId" type="string">
+  Settlement identifier from your payment provider (required for approved settlements)
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Response code from your payment provider
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable message about the settlement result
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Request identifier (from the request)
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  Actual settled amount in cents (may differ from requested amount)
+</ResponseField>
+
+### Helper methods
+
+<Tabs>
+  <Tab title="Approve">
+    ```typescript
+    import { Settlements } from '@vtex/payment-provider'
+    
+    return Settlements.approve(request, {
+      settleId: 'settle_123456',
+      value: request.value
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Deny">
+    ```typescript
+    return Settlements.deny(request, {
+      code: 'AUTHORIZATION_EXPIRED',
+      message: 'Authorization has expired'
+    })
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Common patterns
+
+### Using the callback for async operations
+
+For pending authorizations, use the callback mechanism to send the final result:
+
+```typescript
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  // Start async processing
+  this.processAsync(authorization).then(result => {
+    const response = result.approved
+      ? Authorizations.approve(authorization, {
+          authorizationId: result.id,
+          tid: result.transactionId
+        })
+      : Authorizations.deny(authorization, {
+          tid: result.transactionId,
+          message: result.errorMessage
+        })
+    
+    // Send result via callback
+    this.callback(authorization, response)
+  })
+  
+  // Return pending status immediately
+  return Authorizations.pending(authorization, {
+    tid: generateTid(),
+    delayToCancel: 300000
+  })
+}
+```
+
+### Error handling
+
+Always handle errors gracefully and return proper denial responses:
+
+```typescript
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  try {
+    const result = await this.provider.authorize(authorization)
+    
+    return Authorizations.approve(authorization, {
+      authorizationId: result.id,
+      tid: result.tid,
+      nsu: result.nsu
+    })
+  } catch (error) {
+    return Authorizations.deny(authorization, {
+      tid: generateTid(),
+      code: error.code,
+      message: error.message
+    })
+  }
+}
+```
+
+<Note>
+  Never throw errors from payment methods. Always return a properly formatted denial response when operations fail.
+</Note>
+
+### Partial settlements and refunds
+
+You can settle or refund partial amounts:
+
+```typescript
+public async settle(
+  settlement: SettlementRequest
+): Promise<SettlementResponse> {
+  // Settle only 80% of authorized amount
+  const partialAmount = Math.floor(settlement.value * 0.8)
+  
+  const result = await this.provider.capture({
+    authorizationId: settlement.authorizationId,
+    amount: partialAmount
+  })
+  
+  return Settlements.approve(settlement, {
+    settleId: result.id,
+    value: partialAmount // Return actual settled amount
+  })
+}
+```

@@ -1,0 +1,465 @@
+---
+title: Split payments
+description: Implement split payment functionality to distribute payment amounts across multiple recipients
+---
+
+Split payments allow you to divide a single transaction amount among multiple recipients, enabling marketplace scenarios where funds need to be distributed between sellers and platform operators.
+
+## Overview
+
+When split payments are enabled, your connector receives recipient information during the authorization or capture flow, specifying how the payment amount should be distributed.
+
+## Configuration
+
+Enable split payments in your `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "implementsSplit": true,
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ]
+}
+```
+
+<Info>
+  The `allowsSplit` field determines when recipients are sent:
+  - `onCapture`: Recipients sent during settlement
+  - `onAuthorize`: Recipients sent during authorization
+  - `disabled`: Split not supported for this payment method
+</Info>
+
+## Split on authorization
+
+For payment methods with `"allowsSplit": "onAuthorize"`, recipients are included in the authorization request:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+} from '@vtex/payment-provider'
+
+export default class SplitConnector extends PaymentProvider {
+  public async authorize(
+    request: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Check if split is enabled for this payment
+    if (request.recipients && request.recipients.length > 0) {
+      console.log('Processing split payment with recipients:', request.recipients)
+
+      // Process payment with split
+      const response = await this.context.clients.paymentApi.createSplitPayment({
+        amount: request.value,
+        currency: request.currency,
+        recipients: request.recipients.map(recipient => ({
+          id: recipient.id,
+          name: recipient.name,
+          amount: recipient.amount,
+          // Commission or fee charged
+          chargeProcessingFee: recipient.chargeProcessingFee,
+        })),
+      })
+
+      return Authorizations.approve(request, {
+        authorizationId: response.transactionId,
+        nsu: response.nsu,
+        tid: response.tid,
+      })
+    }
+
+    // Process regular payment without split
+    return this.processRegularPayment(request)
+  }
+}
+```
+
+## Split on capture
+
+For payment methods with `"allowsSplit": "onCapture"`, recipients are included in the settlement request:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  SettlementRequest,
+  SettlementResponse,
+  Settlements,
+} from '@vtex/payment-provider'
+
+export default class SplitConnector extends PaymentProvider {
+  public async settle(
+    request: SettlementRequest
+  ): Promise<SettlementResponse> {
+    // Check if split is enabled for this settlement
+    if (request.recipients && request.recipients.length > 0) {
+      // Capture payment with split
+      const response = await this.context.clients.paymentApi.captureWithSplit({
+        transactionId: request.paymentId,
+        amount: request.value,
+        recipients: request.recipients.map(recipient => ({
+          id: recipient.id,
+          amount: recipient.amount,
+          chargeProcessingFee: recipient.chargeProcessingFee,
+        })),
+      })
+
+      return Settlements.approve(request, {
+        settleId: response.captureId,
+      })
+    }
+
+    // Regular capture without split
+    return this.processRegularSettlement(request)
+  }
+}
+```
+
+## Recipients structure
+
+The `recipients` array contains information about how to split the payment:
+
+```typescript
+interface Recipient {
+  // Unique identifier for the recipient
+  id: string
+
+  // Recipient name
+  name: string
+
+  // Document number (CPF/CNPJ for Brazil)
+  documentType: 'CPF' | 'CNPJ'
+  document: string
+
+  // Amount to be paid to this recipient (in cents)
+  amount: number
+
+  // Commission configuration
+  chargeProcessingFee: boolean
+
+  // Bank account information (if supported)
+  bankAccount?: {
+    bankCode: string
+    agencyNumber: string
+    accountNumber: string
+    accountType: 'checking' | 'savings'
+  }
+}
+```
+
+## Example: Marketplace split
+
+Here's a complete example of processing a marketplace transaction:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+  isBankInvoiceAuthorization,
+} from '@vtex/payment-provider'
+
+export default class MarketplaceConnector extends PaymentProvider {
+  public async authorize(
+    request: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Bank invoice supports split on authorize
+    if (isBankInvoiceAuthorization(request) && request.recipients) {
+      const totalAmount = request.value
+      const recipientsSum = request.recipients.reduce(
+        (sum, r) => sum + r.amount,
+        0
+      )
+
+      // Validate that recipient amounts sum to total
+      if (recipientsSum !== totalAmount) {
+        return Authorizations.deny(request, {
+          message: `Recipients sum (${recipientsSum}) doesn't match total (${totalAmount})`,
+        })
+      }
+
+      // Process split payment
+      try {
+        const response = await this.context.clients.paymentApi.createBankInvoice({
+          amount: totalAmount,
+          recipients: request.recipients.map(recipient => ({
+            accountId: recipient.id,
+            amount: recipient.amount,
+            // Distribute processing fee proportionally
+            fee: recipient.chargeProcessingFee
+              ? Math.floor((recipient.amount / totalAmount) * 100)
+              : 0,
+          })),
+        })
+
+        return Authorizations.approve(request, {
+          authorizationId: response.id,
+          nsu: response.nsu,
+          tid: response.tid,
+        })
+      } catch (error) {
+        return Authorizations.deny(request, {
+          message: 'Failed to create split payment',
+        })
+      }
+    }
+
+    return this.processRegularPayment(request)
+  }
+}
+```
+
+## Partial refunds with split
+
+Enable partial refund support for split payments:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "implementsSplit": true,
+  "acceptSplitPartialRefund": true,
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    }
+  ]
+}
+```
+
+Handle partial refunds in your connector:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  RefundRequest,
+  RefundResponse,
+  Refunds,
+} from '@vtex/payment-provider'
+
+export default class SplitConnector extends PaymentProvider {
+  public async refund(
+    request: RefundRequest
+  ): Promise<RefundResponse> {
+    // Partial refund with split recipients
+    if (request.recipients && request.recipients.length > 0) {
+      // Calculate refund per recipient
+      const refunds = request.recipients.map(recipient => ({
+        recipientId: recipient.id,
+        amount: recipient.amount,
+      }))
+
+      const response = await this.context.clients.paymentApi.refundSplit({
+        transactionId: request.paymentId,
+        refunds,
+      })
+
+      return Refunds.approve(request, {
+        refundId: response.refundId,
+      })
+    }
+
+    // Full refund
+    const response = await this.context.clients.paymentApi.refund({
+      transactionId: request.paymentId,
+      amount: request.value,
+    })
+
+    return Refunds.approve(request, {
+      refundId: response.refundId,
+    })
+  }
+}
+```
+
+## Validation
+
+<Steps>
+  <Step title="Validate recipient amounts">
+    Ensure recipient amounts sum to the total payment amount:
+
+    ```typescript
+    function validateRecipients(
+      totalAmount: number,
+      recipients: Recipient[]
+    ): boolean {
+      const sum = recipients.reduce((acc, r) => acc + r.amount, 0)
+      return sum === totalAmount
+    }
+    ```
+  </Step>
+
+  <Step title="Validate minimum amounts">
+    Check if recipient amounts meet minimum requirements:
+
+    ```typescript
+    const MINIMUM_SPLIT_AMOUNT = 100 // 1.00 in cents
+
+    function validateMinimumAmounts(recipients: Recipient[]): boolean {
+      return recipients.every(r => r.amount >= MINIMUM_SPLIT_AMOUNT)
+    }
+    ```
+  </Step>
+
+  <Step title="Validate recipient IDs">
+    Ensure all recipients have valid identifiers:
+
+    ```typescript
+    function validateRecipientIds(recipients: Recipient[]): boolean {
+      return recipients.every(
+        r => r.id && r.id.trim().length > 0
+      )
+    }
+    ```
+  </Step>
+</Steps>
+
+## Testing split payments
+
+Test your split payment implementation:
+
+```typescript __tests__/split.test.ts
+import { describe, test, expect } from '@jest/globals'
+import SplitConnector from '../connector'
+import { AuthorizationRequest } from '@vtex/payment-provider'
+
+describe('Split Payments', () => {
+  test('should process split payment with multiple recipients', async () => {
+    const connector = new SplitConnector(mockContext)
+
+    const request: AuthorizationRequest = {
+      paymentId: 'test-payment',
+      value: 10000, // 100.00
+      currency: 'BRL',
+      recipients: [
+        {
+          id: 'seller-1',
+          name: 'Seller One',
+          amount: 8000, // 80.00
+          chargeProcessingFee: true,
+        },
+        {
+          id: 'marketplace',
+          name: 'Marketplace',
+          amount: 2000, // 20.00
+          chargeProcessingFee: false,
+        },
+      ],
+    }
+
+    const response = await connector.authorize(request)
+
+    expect(response.status).toBe('approved')
+    expect(response.authorizationId).toBeDefined()
+  })
+
+  test('should reject split with invalid amounts', async () => {
+    const connector = new SplitConnector(mockContext)
+
+    const request: AuthorizationRequest = {
+      paymentId: 'test-payment',
+      value: 10000,
+      recipients: [
+        {
+          id: 'seller-1',
+          amount: 5000,
+          chargeProcessingFee: true,
+        },
+        {
+          id: 'seller-2',
+          amount: 3000, // Sum is 8000, not 10000
+          chargeProcessingFee: true,
+        },
+      ],
+    }
+
+    const response = await connector.authorize(request)
+
+    expect(response.status).toBe('denied')
+  })
+})
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Always validate recipient sums">
+    Verify that recipient amounts equal the total payment:
+
+    ```typescript
+    const recipientsTotal = recipients.reduce((sum, r) => sum + r.amount, 0)
+    if (recipientsTotal !== request.value) {
+      throw new Error('Recipient amounts do not match payment total')
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle processing fees correctly">
+    Respect the `chargeProcessingFee` flag for each recipient:
+
+    ```typescript
+    recipients.forEach(recipient => {
+      const fee = recipient.chargeProcessingFee
+        ? calculateFee(recipient.amount)
+        : 0
+
+      const netAmount = recipient.amount - fee
+      // Transfer netAmount to recipient
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Log split transactions">
+    Maintain detailed logs for split transactions:
+
+    ```typescript
+    console.log('Split payment transaction:', {
+      paymentId: request.paymentId,
+      totalAmount: request.value,
+      recipientCount: request.recipients.length,
+      recipients: request.recipients.map(r => ({
+        id: r.id,
+        amount: r.amount,
+      })),
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Support both split types">
+    Implement both authorization and capture split flows:
+
+    ```typescript
+    // Configure based on payment method
+    const paymentMethods = [
+      {
+        name: 'CreditCard',
+        allowsSplit: 'onCapture',
+      },
+      {
+        name: 'BankInvoice',
+        allowsSplit: 'onAuthorize',
+      },
+    ]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related resources
+
+- [Authorization Route](/api/routes/authorize)
+- [Settlement Route](/api/routes/settle)
+- [Refund Route](/api/routes/refund)
+- [Configuration Guide](/guides/configuration)

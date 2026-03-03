@@ -1,80 +1,402 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Build a working payment connector in under 10 minutes
 ---
 
-## Get started in three steps
+This guide will walk you through creating a basic payment connector using the VTEX Payment Provider Framework. You'll have a working connector that can authorize, cancel, and settle payments.
 
-Get your documentation site running locally and make your first customization.
+## Clone the example repository
 
-### Step 1: Set up your local environment
+The fastest way to start is by cloning the official example repository, which includes all the base configuration:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+```bash
+git clone https://github.com/vtex-apps/payment-provider-example.git
+cd payment-provider-example
+```
+
+The repository structure includes:
+
+```
+payment-provider-example/
+├── node/
+│   ├── connector.ts        # Payment connector implementation
+│   ├── index.ts           # Service initialization
+│   ├── flow.ts            # Payment flow logic
+│   ├── utils.ts           # Utility functions
+│   └── package.json       # Node dependencies
+├── paymentProvider/
+│   └── configuration.json # Payment methods configuration
+└── manifest.json          # VTEX IO app manifest
+```
+
+## Install dependencies
+
+Navigate to the `node` folder and install the required packages:
+
+```bash
+cd node
+yarn install
+```
+
+<Note>
+The `@vtex/payment-provider` SDK should be listed in your dependencies at version `^1.4.0` or higher.
+</Note>
+
+## Configure your manifest
+
+Update `manifest.json` with your connector details:
+
+```json manifest.json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.0.0",
+  "title": "My Payment Connector",
+  "description": "Custom payment connector for MyGateway",
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x"
+  },
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ]
+}
+```
+
+<Steps>
+  <Step title="Update vendor">
+    Change `vendor` to your VTEX account name or organization identifier
+  </Step>
+  
+  <Step title="Set app name">
+    Change `name` to a unique identifier for your connector (e.g., `payment-provider-mygateway`)
+  </Step>
+  
+  <Step title="Configure builders">
+    The `paymentProvider` builder exposes protocol routes and the `node` builder runs your service
+  </Step>
+</Steps>
+
+## Define payment methods
+
+Configure which payment methods your connector supports in `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "API Key",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    }
+  ]
+}
+```
+
+**Payment method options:**
+- `name`: The payment method identifier (Visa, Mastercard, BankInvoice, etc.)
+- `allowsSplit`: When split payments are allowed (`"onCapture"`, `"onAuthorize"`, or `"disabled"`)
+
+**Custom fields** allow merchants to configure API credentials when setting up your connector in VTEX Admin.
+
+## Implement your connector
+
+Create your payment connector by extending the `PaymentProvider` class:
+
+```typescript node/connector.ts
+import {
+  AuthorizationRequest,
+  AuthorizationResponse,
+  CancellationRequest,
+  CancellationResponse,
+  Cancellations,
+  PaymentProvider,
+  RefundRequest,
+  RefundResponse,
+  Refunds,
+  SettlementRequest,
+  SettlementResponse,
+  Settlements,
+  Authorizations,
+} from '@vtex/payment-provider'
+import { randomString } from './utils'
+
+export default class MyPaymentConnector extends PaymentProvider {
+  // Authorize a payment
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Call your payment gateway to authorize the transaction
+    // For this example, we'll approve all payments
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    return Authorizations.approve(authorization, {
+      authorizationId: randomString(),
+      nsu: randomString(),
+      tid: randomString(),
+    })
+  }
+
+  // Cancel a payment
+  public async cancel(
+    cancellation: CancellationRequest
+  ): Promise<CancellationResponse> {
+    // Call your payment gateway to cancel the transaction
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    return Cancellations.approve(cancellation, {
+      cancellationId: randomString(),
+    })
+  }
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+  // Refund a payment
+  public async refund(refund: RefundRequest): Promise<RefundResponse> {
+    // Call your payment gateway to refund the transaction
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    return Refunds.deny(refund)
+  }
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  // Settle (capture) a payment
+  public async settle(
+    settlement: SettlementRequest
+  ): Promise<SettlementResponse> {
+    // Call your payment gateway to capture the authorized amount
+    
+    return Settlements.approve(settlement, {
+      settleId: randomString(),
+    })
+  }
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  // Inbound webhook handler (optional)
+  public inbound: undefined
+}
+```
 
-### Step 3: Go live
+<Note>
+Each method receives a typed request object and must return a typed response. The framework provides helper functions like `Authorizations.approve()` and `Cancellations.deny()` to construct valid responses.
+</Note>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Initialize the service
+
+Create the payment provider service in `node/index.ts`:
+
+```typescript node/index.ts
+import { PaymentProviderService } from '@vtex/payment-provider'
+import MyPaymentConnector from './connector'
+
+export default new PaymentProviderService({
+  connector: MyPaymentConnector,
+})
+```
+
+That's it! The `PaymentProviderService` automatically sets up all required routes:
+- `GET /manifest` - Connector manifest and capabilities
+- `GET /payment-methods` - Supported payment methods
+- `POST /payments` - Payment authorization
+- `POST /payments/:paymentId/cancellations` - Payment cancellation
+- `POST /payments/:paymentId/settlements` - Payment settlement (capture)
+- `POST /payments/:paymentId/refunds` - Payment refund
+- `POST /payments/:paymentId/inbound/hooks` - Inbound webhooks
+
+## Link and test your connector
+
+Now you can test your connector locally using VTEX IO:
+
+<Steps>
+  <Step title="Login to VTEX">
+    ```bash
+    vtex login {account}
+    ```
+  </Step>
+  
+  <Step title="Create a development workspace">
+    ```bash
+    vtex use dev-workspace
+    ```
+  </Step>
+  
+  <Step title="Link your app">
+    ```bash
+    vtex link
+    ```
+    
+    Your connector is now running in your development workspace!
+  </Step>
+</Steps>
+
+## Working with card payments
+
+When processing card payments, you'll receive card data in a secure format. Here's how to handle different card types:
+
+```typescript node/connector.ts
+import {
+  isCardAuthorization,
+  isBankInvoiceAuthorization,
+  isTokenizedCard,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+} from '@vtex/payment-provider'
+
+export default class MyPaymentConnector extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Check if this is a card payment
+    if (isCardAuthorization(authorization)) {
+      const { card } = authorization
+      
+      // Check if card is tokenized or has raw data
+      if (isTokenizedCard(card)) {
+        // Use card.token for tokenized cards
+        const cardToken = card.token
+      } else {
+        // Use card.number, card.csc for non-tokenized cards
+        // These will be encrypted tokens when using Secure Proxy
+        const cardNumber = card.numberToken
+        const cvv = card.cscToken
+      }
+    }
+    
+    // Check if this is a bank invoice payment
+    if (isBankInvoiceAuthorization(authorization)) {
+      // Return a payment URL for the customer
+      return Authorizations.pendingBankInvoice(authorization, {
+        paymentUrl: 'https://payment-gateway.com/invoice/12345',
+        delayToCancel: 600000, // 10 minutes
+        tid: randomString(),
+      })
+    }
+    
+    return Authorizations.approve(authorization, {
+      authorizationId: randomString(),
+      nsu: randomString(),
+      tid: randomString(),
+    })
+  }
+}
+```
+
+## Handle async payments
+
+For payments that are processed asynchronously (like bank invoices or redirect flows), use the retry mechanism:
+
+```typescript node/connector.ts
+export default class MyPaymentConnector extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // For async payments, return pending status initially
+    const response = Authorizations.pending(authorization, {
+      delayToCancel: 300000, // 5 minutes
+      tid: randomString(),
+    })
+    
+    // Later, when payment is confirmed, use callback to notify VTEX
+    this.callback(authorization, Authorizations.approve(authorization, {
+      authorizationId: 'gateway-auth-id',
+      nsu: randomString(),
+      tid: randomString(),
+    }))
+    
+    return response
+  }
+}
+```
+
+<Warning>
+The `callback()` method tells VTEX Gateway to retry the authorization request. Your connector must return a consistent response (approved or denied) when called again with the same `paymentId`.
+</Warning>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Configuration options" icon="gear" href="/guides/configuration">
+    Learn about advanced configuration options like OAuth, Secure Proxy, and split payments
+  </Card>
+  
+  <Card title="Testing your connector" icon="flask" href="/deployment/testing">
+    Run the VTEX test suite to validate your implementation
+  </Card>
+  
+  <Card title="Secure Proxy usage" icon="shield" href="/advanced/secure-proxy">
+    Process card payments without PCI certification
+  </Card>
+  
+  <Card title="Deploy to production" icon="cloud-arrow-up" href="/deployment/production">
+    Publish your connector to the VTEX App Store
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common patterns
+
+### Access merchant configuration
+
+Access the custom fields configured by the merchant:
+
+```typescript
+const apiKey = this.context.vtex.appKey
+const apiToken = this.context.vtex.appToken
+```
+
+### Persist data with VBase
+
+Store transaction data for later retrieval:
+
+```typescript
+import { VBase } from '@vtex/api'
+
+const vbase = this.context.clients.vbase
+
+// Save data
+await vbase.saveJSON('authorizations', paymentId, authorizationResponse)
+
+// Retrieve data
+const data = await vbase.getJSON<AuthorizationResponse>('authorizations', paymentId)
+```
+
+### Handle different response types
+
+```typescript
+// Approve a payment
+Authorizations.approve(request, { authorizationId, nsu, tid })
+
+// Deny a payment
+Authorizations.deny(request, { tid })
+
+// Return pending status
+Authorizations.pending(request, { delayToCancel, tid })
+
+// Redirect to external page
+Authorizations.redirect(request, { redirectUrl, delayToCancel, tid })
+```
+
+You now have a fully functional payment connector! The example approves all payments, but you can replace the logic with actual API calls to your payment gateway.

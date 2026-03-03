@@ -1,0 +1,327 @@
+---
+title: Request types
+description: TypeScript interfaces for payment operation requests in the VTEX Payment Provider framework
+---
+
+All request types are imported from the `@vtex/payment-provider` package and represent incoming payment operations from VTEX's Payment Gateway.
+
+## AuthorizationRequest
+
+Represents a request to authorize a payment transaction. This is the primary request type that initiates the payment flow.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment transaction
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  VTEX transaction identifier
+</ResponseField>
+
+<ResponseField name="paymentMethod" type="string" required>
+  Payment method name (e.g., "Visa", "Mastercard", "BankInvoice")
+</ResponseField>
+
+<ResponseField name="merchantName" type="string" required>
+  Name of the merchant account
+</ResponseField>
+
+<ResponseField name="value" type="number" required>
+  Transaction amount in cents (e.g., 1050 for $10.50)
+</ResponseField>
+
+<ResponseField name="currency" type="string" required>
+  Three-letter ISO currency code (e.g., "USD", "BRL")
+</ResponseField>
+
+<ResponseField name="installments" type="number">
+  Number of installments for the payment
+</ResponseField>
+
+<ResponseField name="deviceFingerprint" type="string">
+  Device fingerprint for fraud detection
+</ResponseField>
+
+<ResponseField name="card" type="CardData | TokenizedCard">
+  Card information for card-based payments
+  
+  <Expandable title="CardData properties">
+    <ResponseField name="holder" type="string">
+      Cardholder name
+    </ResponseField>
+    
+    <ResponseField name="number" type="string">
+      Card number (PCI-compliant, may be masked)
+    </ResponseField>
+    
+    <ResponseField name="csc" type="string">
+      Card security code (CVV/CVC)
+    </ResponseField>
+    
+    <ResponseField name="expiration" type="object">
+      Card expiration date
+      
+      <ResponseField name="month" type="string">
+        Expiration month (01-12)
+      </ResponseField>
+      
+      <ResponseField name="year" type="string">
+        Expiration year (YYYY)
+      </ResponseField>
+    </ResponseField>
+  </Expandable>
+  
+  <Expandable title="TokenizedCard properties">
+    <ResponseField name="token" type="string">
+      Tokenized card identifier
+    </ResponseField>
+    
+    <ResponseField name="tokenProvider" type="string">
+      Token provider name
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="miniCart" type="object">
+  Shopping cart information
+  
+  <Expandable title="Properties">
+    <ResponseField name="shippingValue" type="number">
+      Shipping cost in cents
+    </ResponseField>
+    
+    <ResponseField name="taxValue" type="number">
+      Tax amount in cents
+    </ResponseField>
+    
+    <ResponseField name="buyer" type="object">
+      Buyer information including email, phone, and address
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="merchantSettings" type="object">
+  Custom configuration values from the provider's `configuration.json` customFields
+</ResponseField>
+
+<ResponseField name="ipAddress" type="string">
+  Customer's IP address
+</ResponseField>
+
+### Type guards
+
+The framework provides helper functions to identify authorization types:
+
+```typescript
+import {
+  isCardAuthorization,
+  isBankInvoiceAuthorization,
+  isTokenizedCard
+} from '@vtex/payment-provider'
+
+if (isCardAuthorization(request)) {
+  const card = request.card
+  if (isTokenizedCard(card)) {
+    // Handle tokenized card
+  } else {
+    // Handle regular card
+  }
+}
+
+if (isBankInvoiceAuthorization(request)) {
+  // Handle bank invoice payment
+}
+```
+
+<Note>
+  The `card` field is only present when `isCardAuthorization()` returns true. Always use type guards to safely access card data.
+</Note>
+
+---
+
+## CancellationRequest
+
+Represents a request to cancel a previously authorized payment.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the original payment transaction
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Unique identifier for this cancellation request
+</ResponseField>
+
+<ResponseField name="authorizationId" type="string">
+  Authorization identifier returned from the original authorization
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  VTEX transaction identifier
+</ResponseField>
+
+<ResponseField name="value" type="number" required>
+  Amount to cancel in cents
+</ResponseField>
+
+<ResponseField name="merchantSettings" type="object">
+  Custom configuration values from the provider's settings
+</ResponseField>
+
+### Usage example
+
+```typescript
+public async cancel(
+  cancellation: CancellationRequest
+): Promise<CancellationResponse> {
+  // Cancel the payment with your payment provider
+  const result = await this.provider.cancelPayment({
+    authorizationId: cancellation.authorizationId,
+    amount: cancellation.value
+  })
+  
+  return Cancellations.approve(cancellation, {
+    cancellationId: result.id
+  })
+}
+```
+
+---
+
+## RefundRequest
+
+Represents a request to refund a settled payment transaction.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the original payment transaction
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Unique identifier for this refund request
+</ResponseField>
+
+<ResponseField name="settleId" type="string">
+  Settlement identifier from the original settlement
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  VTEX transaction identifier
+</ResponseField>
+
+<ResponseField name="value" type="number" required>
+  Amount to refund in cents
+</ResponseField>
+
+<ResponseField name="merchantSettings" type="object">
+  Custom configuration values from the provider's settings
+</ResponseField>
+
+<Note>
+  Refunds can only be performed on settled transactions. Use cancellations for authorized-but-not-settled payments.
+</Note>
+
+---
+
+## SettlementRequest
+
+Represents a request to settle (capture) an authorized payment.
+
+<ResponseField name="paymentId" type="string" required>
+  Unique identifier for the payment transaction
+</ResponseField>
+
+<ResponseField name="requestId" type="string" required>
+  Unique identifier for this settlement request
+</ResponseField>
+
+<ResponseField name="authorizationId" type="string">
+  Authorization identifier from the original authorization
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  VTEX transaction identifier
+</ResponseField>
+
+<ResponseField name="value" type="number" required>
+  Amount to settle in cents (must not exceed authorized amount)
+</ResponseField>
+
+<ResponseField name="merchantSettings" type="object">
+  Custom configuration values from the provider's settings
+</ResponseField>
+
+### Usage example
+
+```typescript
+public async settle(
+  settlement: SettlementRequest
+): Promise<SettlementResponse> {
+  // Capture the authorized payment
+  const result = await this.provider.capturePayment({
+    authorizationId: settlement.authorizationId,
+    amount: settlement.value
+  })
+  
+  return Settlements.approve(settlement, {
+    settleId: result.id
+  })
+}
+```
+
+---
+
+## Common patterns
+
+### Accessing merchant settings
+
+All request types include `merchantSettings` which contains the custom fields defined in `configuration.json`:
+
+```typescript
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  const clientId = authorization.merchantSettings['Client ID']
+  const secretToken = authorization.merchantSettings['Secret Token']
+  const currency = authorization.merchantSettings['Currency']
+  
+  // Use settings to authenticate with payment provider
+}
+```
+
+### Handling different payment methods
+
+<Tabs>
+  <Tab title="Credit card">
+    ```typescript
+    if (isCardAuthorization(request)) {
+      const { card } = request
+      
+      if (isTokenizedCard(card)) {
+        // Process tokenized card
+        return this.processToken(card.token)
+      } else {
+        // Process card details
+        return this.processCard({
+          number: card.number,
+          holder: card.holder,
+          cvv: card.csc,
+          expiration: card.expiration
+        })
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Bank invoice">
+    ```typescript
+    if (isBankInvoiceAuthorization(request)) {
+      // Generate payment URL for bank invoice
+      const paymentUrl = await this.generateBankInvoice(request)
+      
+      return Authorizations.pendingBankInvoice(request, {
+        paymentUrl,
+        tid: generateTransactionId(),
+        delayToCancel: 86400000 // 24 hours
+      })
+    }
+    ```
+  </Tab>
+</Tabs>

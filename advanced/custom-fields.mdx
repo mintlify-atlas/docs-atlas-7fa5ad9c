@@ -1,0 +1,527 @@
+---
+title: Custom fields
+description: Configure custom fields to collect provider-specific settings from merchants
+---
+
+Custom fields allow you to collect configuration data from merchants during connector setup, such as API keys, merchant IDs, or environment preferences.
+
+## Overview
+
+Custom fields appear in the VTEX Admin when merchants configure your payment connector. The values are securely stored and passed to your connector in payment requests.
+
+## Configuration
+
+Define custom fields in your `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+<Info>
+  This configuration is from the example connector at `paymentProvider/configuration.json:33-56`
+</Info>
+
+## Field types
+
+The Payment Provider Framework supports three field types:
+
+### Text fields
+
+For plain text input like API keys or merchant IDs:
+
+```json
+{
+  "name": "Merchant ID",
+  "type": "text"
+}
+```
+
+### Password fields
+
+For sensitive data that should be masked in the UI:
+
+```json
+{
+  "name": "API Secret",
+  "type": "password"
+}
+```
+
+<Warning>
+  Password fields are masked in the UI but are still transmitted as plain text to your connector. Always use HTTPS and handle credentials securely.
+</Warning>
+
+### Select fields
+
+For dropdown menus with predefined options:
+
+```json
+{
+  "name": "Environment",
+  "type": "select",
+  "options": [
+    {
+      "text": "Production",
+      "value": "prod"
+    },
+    {
+      "text": "Sandbox",
+      "value": "sandbox"
+    },
+    {
+      "text": "Development",
+      "value": "dev"
+    }
+  ]
+}
+```
+
+## Accessing custom fields
+
+Access custom field values from the authorization request:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+} from '@vtex/payment-provider'
+
+export default class CustomFieldConnector extends PaymentProvider {
+  public async authorize(
+    request: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Access custom fields from request
+    const clientId = request.customFields?.['Client ID']
+    const secretToken = request.customFields?.['Secret Token']
+    const currency = request.customFields?.['Currency']
+
+    // Validate required fields
+    if (!clientId || !secretToken) {
+      return Authorizations.deny(request, {
+        message: 'Missing required configuration',
+      })
+    }
+
+    // Use custom fields in your logic
+    const response = await this.context.clients.paymentApi.authorize({
+      clientId,
+      secretToken,
+      currency: currency === '1' ? 'BRL' : 'USD',
+      amount: request.value,
+    })
+
+    return Authorizations.approve(request, {
+      authorizationId: response.transactionId,
+      nsu: response.nsu,
+      tid: response.tid,
+    })
+  }
+}
+```
+
+## Common use cases
+
+<Steps>
+  <Step title="API credentials">
+    Collect API keys and secrets for authentication:
+
+    ```json
+    {
+      "customFields": [
+        {
+          "name": "API Key",
+          "type": "text"
+        },
+        {
+          "name": "API Secret",
+          "type": "password"
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Environment selection">
+    Allow merchants to choose between production and sandbox:
+
+    ```json
+    {
+      "customFields": [
+        {
+          "name": "Environment",
+          "type": "select",
+          "options": [
+            {
+              "text": "Production",
+              "value": "production"
+            },
+            {
+              "text": "Sandbox",
+              "value": "sandbox"
+            }
+          ]
+        }
+      ]
+    }
+    ```
+
+    Usage in connector:
+
+    ```typescript
+    const environment = request.customFields?.['Environment'] || 'production'
+    const baseUrl = environment === 'production'
+      ? 'https://api.provider.com'
+      : 'https://sandbox.provider.com'
+    ```
+  </Step>
+
+  <Step title="Merchant identification">
+    Collect merchant-specific identifiers:
+
+    ```json
+    {
+      "customFields": [
+        {
+          "name": "Merchant Account ID",
+          "type": "text"
+        },
+        {
+          "name": "Store Code",
+          "type": "text"
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Feature flags">
+    Enable optional features:
+
+    ```json
+    {
+      "customFields": [
+        {
+          "name": "Enable 3DS",
+          "type": "select",
+          "options": [
+            {
+              "text": "Yes",
+              "value": "true"
+            },
+            {
+              "text": "No",
+              "value": "false"
+            }
+          ]
+        }
+      ]
+    }
+    ```
+  </Step>
+</Steps>
+
+## Advanced examples
+
+### Multi-currency configuration
+
+```json paymentProvider/configuration.json
+{
+  "name": "MultiCurrencyConnector",
+  "customFields": [
+    {
+      "name": "Default Currency",
+      "type": "select",
+      "options": [
+        { "text": "Brazilian Real (BRL)", "value": "BRL" },
+        { "text": "US Dollar (USD)", "value": "USD" },
+        { "text": "Euro (EUR)", "value": "EUR" },
+        { "text": "British Pound (GBP)", "value": "GBP" }
+      ]
+    },
+    {
+      "name": "Currency Conversion",
+      "type": "select",
+      "options": [
+        { "text": "Use VTEX rates", "value": "vtex" },
+        { "text": "Use provider rates", "value": "provider" }
+      ]
+    }
+  ]
+}
+```
+
+### Region-specific settings
+
+```json
+{
+  "name": "RegionalConnector",
+  "customFields": [
+    {
+      "name": "Region",
+      "type": "select",
+      "options": [
+        { "text": "North America", "value": "na" },
+        { "text": "Europe", "value": "eu" },
+        { "text": "Asia Pacific", "value": "apac" },
+        { "text": "Latin America", "value": "latam" }
+      ]
+    },
+    {
+      "name": "Language",
+      "type": "select",
+      "options": [
+        { "text": "English", "value": "en" },
+        { "text": "Spanish", "value": "es" },
+        { "text": "Portuguese", "value": "pt" }
+      ]
+    }
+  ]
+}
+```
+
+Usage in connector:
+
+```typescript node/connector.ts
+const region = request.customFields?.['Region']
+const language = request.customFields?.['Language']
+
+const apiEndpoints = {
+  na: 'https://api-na.provider.com',
+  eu: 'https://api-eu.provider.com',
+  apac: 'https://api-apac.provider.com',
+  latam: 'https://api-latam.provider.com',
+}
+
+const baseUrl = apiEndpoints[region] || apiEndpoints.na
+```
+
+### Payment method configuration
+
+```json
+{
+  "name": "FlexibleConnector",
+  "customFields": [
+    {
+      "name": "Installment Options",
+      "type": "select",
+      "options": [
+        { "text": "1-6 installments", "value": "6" },
+        { "text": "1-12 installments", "value": "12" },
+        { "text": "1-24 installments", "value": "24" }
+      ]
+    },
+    {
+      "name": "Minimum Installment Amount",
+      "type": "text"
+    }
+  ]
+}
+```
+
+## Validation
+
+Validate custom fields in your connector:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+} from '@vtex/payment-provider'
+
+export default class ValidatingConnector extends PaymentProvider {
+  private validateCustomFields(
+    request: AuthorizationRequest
+  ): { valid: boolean; error?: string } {
+    const customFields = request.customFields
+
+    // Check required fields
+    if (!customFields?.['Client ID']) {
+      return { valid: false, error: 'Client ID is required' }
+    }
+
+    if (!customFields?.['Secret Token']) {
+      return { valid: false, error: 'Secret Token is required' }
+    }
+
+    // Validate field formats
+    const clientId = customFields['Client ID']
+    if (!/^[A-Z0-9]{20}$/.test(clientId)) {
+      return {
+        valid: false,
+        error: 'Client ID must be 20 alphanumeric characters',
+      }
+    }
+
+    return { valid: true }
+  }
+
+  public async authorize(
+    request: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Validate custom fields
+    const validation = this.validateCustomFields(request)
+    if (!validation.valid) {
+      return Authorizations.deny(request, {
+        message: validation.error,
+      })
+    }
+
+    // Proceed with authorization
+    return this.processAuthorization(request)
+  }
+}
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive field names">
+    Choose clear, user-friendly names for your custom fields:
+
+    ```json
+    // ✅ Good
+    { "name": "Merchant Account ID", "type": "text" }
+
+    // ❌ Bad
+    { "name": "ID", "type": "text" }
+    ```
+  </Accordion>
+
+  <Accordion title="Provide default values when possible">
+    Use select fields with sensible defaults:
+
+    ```json
+    {
+      "name": "Environment",
+      "type": "select",
+      "options": [
+        { "text": "Production (recommended)", "value": "prod" },
+        { "text": "Sandbox", "value": "sandbox" }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Validate field values">
+    Always validate custom field values before using them:
+
+    ```typescript
+    const apiKey = request.customFields?.['API Key']
+    if (!apiKey || apiKey.trim().length === 0) {
+      throw new Error('API Key is required')
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Document field requirements">
+    Provide clear documentation for merchants about what each field requires:
+
+    ```markdown
+    ## Configuration Fields
+
+    - **API Key**: Your provider API key (20 characters)
+    - **API Secret**: Your provider secret key (keep this secure)
+    - **Environment**: Choose Production for live transactions
+    ```
+  </Accordion>
+
+  <Accordion title="Use password type for sensitive data">
+    Always use password type for secrets:
+
+    ```json
+    [
+      { "name": "API Key", "type": "text" },
+      { "name": "API Secret", "type": "password" }
+    ]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing custom fields
+
+Test your custom fields implementation:
+
+```typescript __tests__/customFields.test.ts
+import { describe, test, expect } from '@jest/globals'
+import CustomFieldConnector from '../connector'
+import { AuthorizationRequest } from '@vtex/payment-provider'
+
+describe('Custom Fields', () => {
+  test('should process with valid custom fields', async () => {
+    const connector = new CustomFieldConnector(mockContext)
+
+    const request: AuthorizationRequest = {
+      paymentId: 'test-payment',
+      value: 10000,
+      currency: 'BRL',
+      customFields: {
+        'Client ID': 'valid-client-id',
+        'Secret Token': 'valid-secret-token',
+        'Currency': '1',
+      },
+    }
+
+    const response = await connector.authorize(request)
+
+    expect(response.status).toBe('approved')
+  })
+
+  test('should deny with missing custom fields', async () => {
+    const connector = new CustomFieldConnector(mockContext)
+
+    const request: AuthorizationRequest = {
+      paymentId: 'test-payment',
+      value: 10000,
+      currency: 'BRL',
+      customFields: {},
+    }
+
+    const response = await connector.authorize(request)
+
+    expect(response.status).toBe('denied')
+    expect(response.message).toContain('Missing required configuration')
+  })
+})
+```
+
+## Related resources
+
+- [OAuth Configuration](/advanced/oauth)
+- [Configuration Guide](/guides/configuration)
+- [Authorization Route](/api/routes/authorize)

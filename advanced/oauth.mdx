@@ -1,0 +1,412 @@
+---
+title: OAuth configuration
+description: Implement OAuth authentication flow for your payment provider connector
+---
+
+OAuth allows your payment provider to implement a secure configuration flow where merchants authenticate directly with your service, eliminating the need to manually copy credentials.
+
+## Overview
+
+When OAuth is enabled, VTEX redirects merchants to your authentication page during connector configuration. After successful authentication, your service returns tokens that VTEX stores and includes in payment requests.
+
+## Configuration
+
+Enable OAuth in your `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "implementsOAuth": true,
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Client Secret",
+      "type": "password"
+    }
+  ]
+}
+```
+
+<Info>
+  Setting `implementsOAuth` to `true` enables the OAuth configuration flow in the VTEX Admin.
+</Info>
+
+## OAuth flow
+
+The OAuth implementation follows these steps:
+
+<Steps>
+  <Step title="Merchant initiates configuration">
+    The merchant accesses your connector configuration in VTEX Admin and clicks "Connect with [Provider]".
+  </Step>
+
+  <Step title="VTEX redirects to provider">
+    VTEX redirects the merchant to your OAuth authorization URL with:
+    - `client_id`: Your connector's client ID
+    - `redirect_uri`: VTEX callback URL
+    - `state`: Security token to prevent CSRF attacks
+  </Step>
+
+  <Step title="Merchant authenticates">
+    The merchant logs in to your service and authorizes the VTEX integration.
+  </Step>
+
+  <Step title="Provider redirects back to VTEX">
+    Your service redirects back to VTEX with:
+    - `code`: Authorization code
+    - `state`: The same state parameter received
+  </Step>
+
+  <Step title="VTEX exchanges code for tokens">
+    VTEX exchanges the authorization code for access tokens by calling your token endpoint.
+  </Step>
+
+  <Step title="Tokens stored securely">
+    VTEX securely stores the tokens and includes them in subsequent payment requests.
+  </Step>
+</Steps>
+
+## Implementation
+
+### Authorization endpoint
+
+Create an authorization endpoint that displays a login page:
+
+```typescript node/handlers/oauth.ts
+import { Router } from 'express'
+
+const router = Router()
+
+router.get('/oauth/authorize', (req, res) => {
+  const { client_id, redirect_uri, state } = req.query
+
+  // Validate client_id
+  if (!isValidClient(client_id)) {
+    return res.status(400).json({ error: 'Invalid client_id' })
+  }
+
+  // Store state and redirect_uri in session
+  req.session.oauthState = state
+  req.session.redirectUri = redirect_uri
+
+  // Render login page
+  res.render('login', {
+    clientId: client_id,
+    state,
+  })
+})
+
+export default router
+```
+
+### Token exchange endpoint
+
+Implement the token exchange endpoint:
+
+```typescript node/handlers/oauth.ts
+router.post('/oauth/token', async (req, res) => {
+  const { grant_type, code, client_id, client_secret } = req.body
+
+  // Validate grant type
+  if (grant_type !== 'authorization_code') {
+    return res.status(400).json({
+      error: 'unsupported_grant_type',
+    })
+  }
+
+  // Validate client credentials
+  if (!isValidClient(client_id, client_secret)) {
+    return res.status(401).json({
+      error: 'invalid_client',
+    })
+  }
+
+  // Exchange code for tokens
+  const authCode = await getAuthorizationCode(code)
+  if (!authCode || authCode.isExpired()) {
+    return res.status(400).json({
+      error: 'invalid_grant',
+    })
+  }
+
+  // Generate tokens
+  const accessToken = generateAccessToken(authCode.userId)
+  const refreshToken = generateRefreshToken(authCode.userId)
+
+  res.json({
+    access_token: accessToken,
+    token_type: 'Bearer',
+    expires_in: 3600,
+    refresh_token: refreshToken,
+  })
+})
+```
+
+### Using OAuth tokens in your connector
+
+Access OAuth tokens from the authorization request:
+
+```typescript node/connector.ts
+import {
+  PaymentProvider,
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+} from '@vtex/payment-provider'
+
+export default class OAuthConnector extends PaymentProvider {
+  public async authorize(
+    request: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // OAuth tokens are available in request headers
+    const accessToken = this.context.vtex.authToken
+
+    // Use token to authenticate with your API
+    const response = await this.context.clients.paymentClient.createPayment({
+      amount: request.value,
+      currency: request.currency,
+      token: accessToken,
+    })
+
+    return Authorizations.approve(request, {
+      authorizationId: response.id,
+      nsu: response.nsu,
+      tid: response.tid,
+    })
+  }
+}
+```
+
+## Token refresh
+
+Implement token refresh to handle expired access tokens:
+
+```typescript node/handlers/oauth.ts
+router.post('/oauth/refresh', async (req, res) => {
+  const { grant_type, refresh_token, client_id, client_secret } = req.body
+
+  // Validate grant type
+  if (grant_type !== 'refresh_token') {
+    return res.status(400).json({
+      error: 'unsupported_grant_type',
+    })
+  }
+
+  // Validate client
+  if (!isValidClient(client_id, client_secret)) {
+    return res.status(401).json({
+      error: 'invalid_client',
+    })
+  }
+
+  // Validate refresh token
+  const storedToken = await getRefreshToken(refresh_token)
+  if (!storedToken) {
+    return res.status(400).json({
+      error: 'invalid_grant',
+    })
+  }
+
+  // Generate new tokens
+  const newAccessToken = generateAccessToken(storedToken.userId)
+  const newRefreshToken = generateRefreshToken(storedToken.userId)
+
+  // Revoke old refresh token
+  await revokeRefreshToken(refresh_token)
+
+  res.json({
+    access_token: newAccessToken,
+    token_type: 'Bearer',
+    expires_in: 3600,
+    refresh_token: newRefreshToken,
+  })
+})
+```
+
+## Custom fields with OAuth
+
+You can combine OAuth with custom fields for additional configuration:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "implementsOAuth": true,
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Client Secret",
+      "type": "password"
+    },
+    {
+      "name": "Environment",
+      "type": "select",
+      "options": [
+        {
+          "text": "Production",
+          "value": "prod"
+        },
+        {
+          "text": "Sandbox",
+          "value": "sandbox"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Access custom fields in your connector:
+
+```typescript
+public async authorize(
+  request: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  const environment = request.customFields?.Environment || 'prod'
+  const baseUrl = environment === 'prod'
+    ? 'https://api.provider.com'
+    : 'https://sandbox.provider.com'
+
+  // Use environment-specific URL
+  const response = await this.http.post(`${baseUrl}/payments`, {
+    // payment data
+  })
+}
+```
+
+## Security considerations
+
+<AccordionGroup>
+  <Accordion title="Validate state parameter">
+    Always validate the `state` parameter to prevent CSRF attacks:
+
+    ```typescript
+    router.get('/oauth/callback', (req, res) => {
+      const { state, code } = req.query
+
+      if (state !== req.session.oauthState) {
+        return res.status(400).json({
+          error: 'Invalid state parameter',
+        })
+      }
+
+      // Proceed with token exchange
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Use HTTPS only">
+    All OAuth endpoints must use HTTPS to prevent token interception:
+
+    ```typescript
+    // Enforce HTTPS in production
+    app.use((req, res, next) => {
+      if (!req.secure && process.env.NODE_ENV === 'production') {
+        return res.redirect('https://' + req.headers.host + req.url)
+      }
+      next()
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Implement token expiration">
+    Set reasonable expiration times for tokens:
+
+    ```typescript
+    const TOKEN_EXPIRATION = 60 * 60 // 1 hour
+    const REFRESH_TOKEN_EXPIRATION = 30 * 24 * 60 * 60 // 30 days
+
+    function generateAccessToken(userId: string) {
+      return jwt.sign(
+        { userId, type: 'access' },
+        SECRET,
+        { expiresIn: TOKEN_EXPIRATION }
+      )
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Rate limit token endpoints">
+    Protect token endpoints from brute force attacks:
+
+    ```typescript
+    import rateLimit from 'express-rate-limit'
+
+    const tokenLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 5, // 5 requests per window
+      message: 'Too many token requests',
+    })
+
+    router.post('/oauth/token', tokenLimiter, async (req, res) => {
+      // Handle token exchange
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing OAuth flow
+
+Test your OAuth implementation locally:
+
+```typescript __tests__/oauth.test.ts
+import { describe, test, expect } from '@jest/globals'
+import request from 'supertest'
+import app from '../app'
+
+describe('OAuth Flow', () => {
+  test('should redirect to authorization page', async () => {
+    const response = await request(app)
+      .get('/oauth/authorize')
+      .query({
+        client_id: 'test-client',
+        redirect_uri: 'https://vtex.com/callback',
+        state: 'random-state',
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.text).toContain('login')
+  })
+
+  test('should exchange code for tokens', async () => {
+    const response = await request(app)
+      .post('/oauth/token')
+      .send({
+        grant_type: 'authorization_code',
+        code: 'valid-code',
+        client_id: 'test-client',
+        client_secret: 'test-secret',
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toHaveProperty('access_token')
+    expect(response.body).toHaveProperty('refresh_token')
+  })
+})
+```
+
+## Best practices
+
+- Store OAuth credentials securely using environment variables
+- Implement proper error handling for token validation
+- Log OAuth events for debugging and security monitoring
+- Provide clear error messages to merchants during configuration
+- Support token revocation for security
+- Document the OAuth flow in your connector's README
+
+## Related resources
+
+- [Custom Fields Configuration](/advanced/custom-fields)
+- [Configuration Guide](/guides/configuration)
+- [OAuth 2.0 Specification](https://oauth.net/2/)

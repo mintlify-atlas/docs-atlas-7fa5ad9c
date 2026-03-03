@@ -1,0 +1,392 @@
+---
+title: 'PaymentProvider'
+description: 'Abstract class for implementing VTEX payment provider connectors'
+---
+
+## Overview
+
+The `PaymentProvider` abstract class is the core building block for creating custom payment provider integrations with VTEX. Your connector must extend this class and implement its abstract methods to handle payment operations.
+
+## Class signature
+
+```typescript
+abstract class PaymentProvider {
+  protected context: Context
+  protected isTestSuite: boolean
+  
+  abstract authorize(authorization: AuthorizationRequest): Promise<AuthorizationResponse>
+  abstract cancel(cancellation: CancellationRequest): Promise<CancellationResponse>
+  abstract settle(settlement: SettlementRequest): Promise<SettlementResponse>
+  abstract refund(refund: RefundRequest): Promise<RefundResponse>
+  abstract inbound: RequestHandler | undefined
+  
+  protected callback(request: AuthorizationRequest, response: AuthorizationResponse): void
+}
+```
+
+## Abstract methods
+
+All methods must be implemented in your connector class.
+
+### authorize()
+
+Processes payment authorization requests. This is the primary method called when a customer attempts to pay.
+
+<ParamField path="authorization" type="AuthorizationRequest" required>
+  The authorization request containing payment details, including:
+  - `paymentId` - Unique identifier for the payment
+  - `reference` - Order reference number
+  - `value` - Payment amount in cents
+  - `currency` - Three-letter currency code (e.g., "USD")
+  - `card` or `bankInvoice` - Payment method details
+  - `callbackUrl` - URL for asynchronous callback notifications
+</ParamField>
+
+<ResponseField name="return" type="Promise<AuthorizationResponse>">
+  Returns a promise that resolves to an authorization response with one of the following statuses:
+  - `approved` - Payment approved immediately
+  - `denied` - Payment denied
+  - `pending` - Payment requires asynchronous processing
+</ResponseField>
+
+**Example implementation:**
+
+```typescript node/connector.ts
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  const persistedResponse = await getPersistedAuthorizationResponse(
+    this.context.clients.vbase,
+    authorization
+  )
+
+  if (persistedResponse !== undefined && persistedResponse !== null) {
+    return persistedResponse
+  }
+
+  return executeAuthorization(authorization, response =>
+    this.saveAndRetry(authorization, response)
+  )
+}
+```
+
+<Note>
+  Use `Authorizations.approve()`, `Authorizations.deny()`, or `Authorizations.pending()` helper methods to construct the response.
+</Note>
+
+### cancel()
+
+Cancels a previously authorized payment that has not yet been settled.
+
+<ParamField path="cancellation" type="CancellationRequest" required>
+  The cancellation request containing:
+  - `paymentId` - The payment identifier to cancel
+  - `requestId` - Unique identifier for this cancellation request
+  - `authorizationId` - The authorization ID returned during authorize
+</ParamField>
+
+<ResponseField name="return" type="Promise<CancellationResponse>">
+  Returns a promise resolving to a cancellation response with status `approved` or `denied`.
+</ResponseField>
+
+**Example implementation:**
+
+```typescript node/connector.ts
+public async cancel(
+  cancellation: CancellationRequest
+): Promise<CancellationResponse> {
+  return Cancellations.approve(cancellation, {
+    cancellationId: randomString(),
+  })
+}
+```
+
+<Note>
+  Use `Cancellations.approve()` or `Cancellations.deny()` to construct the response.
+</Note>
+
+### settle()
+
+Settles (captures) a previously authorized payment. This transfers funds from the customer to the merchant.
+
+<ParamField path="settlement" type="SettlementRequest" required>
+  The settlement request containing:
+  - `paymentId` - The payment identifier to settle
+  - `requestId` - Unique identifier for this settlement request
+  - `authorizationId` - The authorization ID to settle
+  - `value` - Amount to settle in cents (may be partial)
+</ParamField>
+
+<ResponseField name="return" type="Promise<SettlementResponse>">
+  Returns a promise resolving to a settlement response with status `approved` or `denied`.
+</ResponseField>
+
+**Example implementation:**
+
+```typescript node/connector.ts
+public async settle(
+  settlement: SettlementRequest
+): Promise<SettlementResponse> {
+  return Settlements.deny(settlement)
+}
+```
+
+<Note>
+  Use `Settlements.approve()` or `Settlements.deny()` to construct the response.
+</Note>
+
+### refund()
+
+Refunds a settled payment, returning funds to the customer.
+
+<ParamField path="refund" type="RefundRequest" required>
+  The refund request containing:
+  - `paymentId` - The payment identifier to refund
+  - `requestId` - Unique identifier for this refund request
+  - `settleId` - The settlement ID to refund
+  - `value` - Amount to refund in cents (may be partial)
+</ParamField>
+
+<ResponseField name="return" type="Promise<RefundResponse>">
+  Returns a promise resolving to a refund response with status `approved` or `denied`.
+</ResponseField>
+
+**Example implementation:**
+
+```typescript node/connector.ts
+public async refund(refund: RefundRequest): Promise<RefundResponse> {
+  return Refunds.deny(refund)
+}
+```
+
+<Note>
+  Use `Refunds.approve()` or `Refunds.deny()` to construct the response.
+</Note>
+
+### inbound
+
+Optional webhook handler for receiving notifications from your payment provider.
+
+<ParamField path="inbound" type="RequestHandler | undefined">
+  Express-style request handler for processing inbound webhooks. Set to `undefined` if not needed.
+</ParamField>
+
+**Example implementation:**
+
+```typescript
+public inbound: RequestHandler = async (req, res) => {
+  const { body } = req
+  
+  // Process webhook notification
+  // Update payment status via callback if needed
+  
+  res.status(200).send('OK')
+}
+```
+
+## Protected properties
+
+### context
+
+<ParamField path="context" type="Context">
+  Provides access to VTEX IO runtime context, including:
+  - `context.clients` - Pre-configured clients (VBase, events, etc.)
+  - `context.vtex` - VTEX account and workspace information
+</ParamField>
+
+### isTestSuite
+
+<ParamField path="isTestSuite" type="boolean">
+  Indicates whether the request is from the VTEX test suite. Use this to enable test-specific behavior.
+</ParamField>
+
+**Example usage:**
+
+```typescript node/connector.ts
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  if (this.isTestSuite) {
+    // Test suite specific logic
+    return executeAuthorization(authorization, response =>
+      this.saveAndRetry(authorization, response)
+    )
+  }
+
+  throw new Error('Not implemented')
+}
+```
+
+## Protected methods
+
+### callback()
+
+Sends asynchronous payment status updates to VTEX.
+
+<ParamField path="request" type="AuthorizationRequest" required>
+  The original authorization request
+</ParamField>
+
+<ParamField path="response" type="AuthorizationResponse" required>
+  The updated authorization response to send
+</ParamField>
+
+**Example usage:**
+
+```typescript node/connector.ts
+private async saveAndRetry(
+  req: AuthorizationRequest,
+  resp: AuthorizationResponse
+) {
+  await persistAuthorizationResponse(this.context.clients.vbase, resp)
+  this.callback(req, resp)
+}
+```
+
+<Note>
+  The `callback()` method is used for asynchronous payment flows where the initial response is `pending` and the final status is determined later.
+</Note>
+
+## Complete example
+
+<Tabs>
+  <Tab title="Basic connector">
+    ```typescript node/connector.ts
+    import {
+      PaymentProvider,
+      AuthorizationRequest,
+      AuthorizationResponse,
+      CancellationRequest,
+      CancellationResponse,
+      SettlementRequest,
+      SettlementResponse,
+      RefundRequest,
+      RefundResponse,
+      Authorizations,
+      Cancellations,
+      Settlements,
+      Refunds,
+    } from '@vtex/payment-provider'
+
+    export default class MyPaymentProvider extends PaymentProvider {
+      public async authorize(
+        authorization: AuthorizationRequest
+      ): Promise<AuthorizationResponse> {
+        // Call your payment gateway API
+        const result = await this.processPayment(authorization)
+        
+        if (result.approved) {
+          return Authorizations.approve(authorization, {
+            authorizationId: result.transactionId,
+            nsu: result.nsu,
+            tid: result.tid,
+          })
+        }
+        
+        return Authorizations.deny(authorization, {
+          tid: result.tid,
+        })
+      }
+
+      public async cancel(
+        cancellation: CancellationRequest
+      ): Promise<CancellationResponse> {
+        // Call your payment gateway cancel API
+        return Cancellations.approve(cancellation, {
+          cancellationId: 'unique-id',
+        })
+      }
+
+      public async settle(
+        settlement: SettlementRequest
+      ): Promise<SettlementResponse> {
+        // Call your payment gateway settle API
+        return Settlements.approve(settlement, {
+          settleId: 'unique-id',
+        })
+      }
+
+      public async refund(
+        refund: RefundRequest
+      ): Promise<RefundResponse> {
+        // Call your payment gateway refund API
+        return Refunds.approve(refund, {
+          refundId: 'unique-id',
+        })
+      }
+
+      public inbound: undefined
+    }
+    ```
+  </Tab>
+  
+  <Tab title="With async flow">
+    ```typescript node/connector.ts
+    export default class AsyncPaymentProvider extends PaymentProvider {
+      public async authorize(
+        authorization: AuthorizationRequest
+      ): Promise<AuthorizationResponse> {
+        // Start async payment process
+        const result = await this.initiatePayment(authorization)
+        
+        // Store request for later callback
+        await this.context.clients.vbase.saveJSON(
+          'pending-payments',
+          authorization.paymentId,
+          authorization
+        )
+        
+        return Authorizations.pending(authorization, {
+          delayToCancel: 300000, // 5 minutes
+          tid: result.transactionId,
+        })
+      }
+      
+      // Webhook handler for payment provider notifications
+      public inbound: RequestHandler = async (req, res) => {
+        const notification = req.body
+        
+        // Retrieve original request
+        const authRequest = await this.context.clients.vbase.getJSON(
+          'pending-payments',
+          notification.paymentId
+        )
+        
+        // Send final status via callback
+        if (notification.status === 'approved') {
+          this.callback(authRequest, Authorizations.approve(authRequest, {
+            authorizationId: notification.transactionId,
+            nsu: notification.nsu,
+            tid: notification.tid,
+          }))
+        } else {
+          this.callback(authRequest, Authorizations.deny(authRequest, {
+            tid: notification.tid,
+          }))
+        }
+        
+        res.status(200).send('OK')
+      }
+      
+      // ... other methods
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="PaymentProviderService" icon="gear" href="/api/payment-provider-service">
+    Learn how to register your connector
+  </Card>
+  <Card title="Types & interfaces" icon="code" href="/api/types/requests">
+    Explore request and response types
+  </Card>
+  <Card title="Payment flows" icon="diagram-project" href="/concepts/payment-flows">
+    Understand different payment flows
+  </Card>
+  <Card title="Creating a connector" icon="wrench" href="/guides/creating-connector">
+    Step-by-step implementation guide
+  </Card>
+</CardGroup>

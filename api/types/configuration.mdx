@@ -1,0 +1,400 @@
+---
+title: Configuration types
+description: Configuration file structures for VTEX Payment Provider apps
+---
+
+Your payment provider app requires two main configuration files: `manifest.json` for app metadata and `paymentProvider/configuration.json` for payment-specific settings.
+
+## configuration.json
+
+Defines your payment provider's capabilities, supported payment methods, and custom configuration fields displayed in the VTEX Admin.
+
+**Location**: `paymentProvider/configuration.json`
+
+### Schema
+
+<ResponseField name="name" type="string" required>
+  Display name for your payment provider shown in VTEX Admin
+  
+  ```json
+  "name": "TestSuitApprover"
+  ```
+</ResponseField>
+
+<ResponseField name="paymentMethods" type="array" required>
+  List of supported payment methods
+  
+  <Expandable title="Payment method object">
+    <ResponseField name="name" type="string" required>
+      Payment method name. Common values:
+      - `Visa`
+      - `Mastercard`
+      - `American Express`
+      - `Diners`
+      - `Elo`
+      - `Hipercard`
+      - `BankInvoice`
+    </ResponseField>
+    
+    <ResponseField name="allowsSplit" type="string" required>
+      When split payments are allowed:
+      - `onCapture` - Split on settlement (typical for credit cards)
+      - `onAuthorize` - Split on authorization (typical for instant payments)
+      - `disabled` - No split payments allowed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="customFields" type="array">
+  Custom configuration fields shown in VTEX Admin for merchant setup
+  
+  <Expandable title="Custom field object">
+    <ResponseField name="name" type="string" required>
+      Field label displayed in Admin (e.g., "Client ID", "Secret Token")
+    </ResponseField>
+    
+    <ResponseField name="type" type="string" required>
+      Input type:
+      - `text` - Single-line text input
+      - `password` - Password field (masked)
+      - `select` - Dropdown selection
+      - `textarea` - Multi-line text input
+    </ResponseField>
+    
+    <ResponseField name="options" type="array">
+      Options for `select` type fields
+      
+      <ResponseField name="text" type="string">
+        Display text for the option
+      </ResponseField>
+      
+      <ResponseField name="value" type="string">
+        Value stored when option is selected
+      </ResponseField>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+Here's a complete `configuration.json` example from the payment provider example app:
+
+```json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Diners",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Elo",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Hipercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Accessing custom fields
+
+Custom fields are accessible via `merchantSettings` in all request types:
+
+```typescript
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  // Access custom fields by name
+  const clientId = authorization.merchantSettings['Client ID']
+  const secretToken = authorization.merchantSettings['Secret Token']
+  const currency = authorization.merchantSettings['Currency']
+  
+  // Use credentials to authenticate with your payment provider
+  await this.provider.authenticate(clientId, secretToken)
+}
+```
+
+<Note>
+  Custom field names are case-sensitive. Access them exactly as defined in `configuration.json`.
+</Note>
+
+---
+
+## manifest.json
+
+Defines your VTEX IO app's metadata, builders, policies, and billing configuration.
+
+**Location**: `manifest.json`
+
+### Schema
+
+<ResponseField name="name" type="string" required>
+  App name (lowercase, hyphen-separated)
+  
+  ```json
+  "name": "payment-provider-example"
+  ```
+</ResponseField>
+
+<ResponseField name="vendor" type="string" required>
+  VTEX account or vendor name
+  
+  ```json
+  "vendor": "vtex"
+  ```
+</ResponseField>
+
+<ResponseField name="version" type="string" required>
+  Semantic version (MAJOR.MINOR.PATCH)
+  
+  ```json
+  "version": "1.2.0"
+  ```
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Human-readable app title
+  
+  ```json
+  "title": "Payment Provider Example"
+  ```
+</ResponseField>
+
+<ResponseField name="description" type="string" required>
+  Brief description of the app's purpose
+  
+  ```json
+  "description": "Reference app for Payment-Provider protocol implementers"
+  ```
+</ResponseField>
+
+<ResponseField name="builders" type="object" required>
+  VTEX IO builders and their versions
+  
+  <Expandable title="Required builders for payment providers">
+    <ResponseField name="paymentProvider" type="string" required>
+      Payment provider builder (use `"1.x"`)
+    </ResponseField>
+    
+    <ResponseField name="node" type="string" required>
+      Node.js runtime builder (use `"6.x"` or higher)
+    </ResponseField>
+    
+    <ResponseField name="docs" type="string">
+      Documentation builder (optional, use `"0.x"`)
+    </ResponseField>
+  </Expandable>
+  
+  ```json
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x",
+    "docs": "0.x"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="policies" type="array" required>
+  Access policies required by your app
+  
+  <Expandable title="Common payment provider policies">
+    <ResponseField name="vbase-read-write" type="policy">
+      Read/write access to VTEX Base (key-value storage)
+      
+      ```json
+      { "name": "vbase-read-write" }
+      ```
+    </ResponseField>
+    
+    <ResponseField name="colossus-fire-event" type="policy">
+      Permission to fire events
+      
+      ```json
+      { "name": "colossus-fire-event" }
+      ```
+    </ResponseField>
+    
+    <ResponseField name="colossus-write-logs" type="policy">
+      Permission to write logs
+      
+      ```json
+      { "name": "colossus-write-logs" }
+      ```
+    </ResponseField>
+    
+    <ResponseField name="outbound-access" type="policy">
+      Access to external services (required for payment callbacks)
+      
+      ```json
+      {
+        "name": "outbound-access",
+        "attrs": {
+          "host": "heimdall.vtexpayments.com.br",
+          "path": "/api/payment-provider/callback/*"
+        }
+      }
+      ```
+      
+      Add additional `outbound-access` policies for your payment provider's API endpoints.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="billingOptions" type="object" required>
+  Billing configuration for the app
+  
+  <Expandable title="Billing types">
+    <ResponseField name="type" type="string" required>
+      Billing model:
+      - `free` - No charge
+      - `fixed` - Fixed monthly/annual fee
+      - `metered` - Usage-based pricing
+    </ResponseField>
+    
+    For non-free apps, additional fields are required. See [VTEX IO billing documentation](https://developers.vtex.com/docs/guides/vtex-io-documentation-billing-options).
+  </Expandable>
+  
+  ```json
+  "billingOptions": {
+    "type": "free"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="$schema" type="string">
+  JSON schema URL for manifest validation
+  
+  ```json
+  "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
+  ```
+</ResponseField>
+
+### Example
+
+Here's a complete `manifest.json` example:
+
+```json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.2.0",
+  "title": "Payment Provider Example",
+  "description": "Reference app for Payment-Provider protocol implementers",
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x",
+    "docs": "0.x"
+  },
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "colossus-write-logs"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ],
+  "billingOptions": {
+    "type": "free"
+  },
+  "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
+}
+```
+
+### Adding external API access
+
+To call your payment provider's API, add `outbound-access` policies:
+
+```json
+{
+  "name": "outbound-access",
+  "attrs": {
+    "host": "api.your-payment-provider.com",
+    "path": "*"
+  }
+}
+```
+
+<Note>
+  You need separate `outbound-access` policies for each external host. The callback endpoint to `heimdall.vtexpayments.com.br` is required for all payment providers.
+</Note>
+
+---
+
+## Environment variables
+
+While not strictly configuration files, you can use environment variables for sensitive data that shouldn't be in `configuration.json`.
+
+### Setting variables
+
+Use VTEX CLI to set environment variables:
+
+```bash
+vtex settings set vtex.payment-provider-example apiEndpoint "https://api.provider.com"
+```
+
+### Accessing variables
+
+```typescript
+const settings = await this.context.clients.apps.getAppSettings(
+  'vtex.payment-provider-example@1.2.0'
+)
+
+const apiEndpoint = settings.apiEndpoint
+```
+
+<Note>
+  Environment variables are account-specific, while `customFields` in `configuration.json` are per-merchant-affiliation.
+</Note>

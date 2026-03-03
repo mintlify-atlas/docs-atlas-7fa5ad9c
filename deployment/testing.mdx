@@ -1,0 +1,307 @@
+---
+title: Testing your connector
+description: Learn how to test your payment provider connector using test cards and the VTEX test suite requirements
+---
+
+Before deploying your payment connector to production, you must thoroughly test all payment flows to ensure your connector works correctly with the VTEX Payment Gateway.
+
+## Test suite requirements
+
+Your connector must be able to handle the VTEX test suite, which validates that your implementation follows the Payment Provider Protocol correctly.
+
+<Note>
+The `isTestSuite` property is automatically available in your `PaymentProvider` class and indicates when requests are coming from the VTEX test suite.
+</Note>
+
+### Implementing test suite support
+
+Your connector should check the `isTestSuite` flag and implement special logic for test requests:
+
+```typescript node/connector.ts
+export default class TestSuiteApprover extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    if (this.isTestSuite) {
+      // Return consistent responses for test suite
+      return executeAuthorization(authorization, response =>
+        this.saveAndRetry(authorization, response)
+      )
+    }
+
+    // Your production implementation
+    throw new Error('Not implemented')
+  }
+}
+```
+
+### Persisting test responses
+
+The test suite may retry the same payment ID multiple times. Your connector must return consistent responses for the same payment ID:
+
+```typescript node/connector.ts
+const authorizationsBucket = 'authorizations'
+
+const persistAuthorizationResponse = async (
+  vbase: VBase,
+  resp: AuthorizationResponse
+) => vbase.saveJSON(authorizationsBucket, resp.paymentId, resp)
+
+const getPersistedAuthorizationResponse = async (
+  vbase: VBase,
+  req: AuthorizationRequest
+) =>
+  vbase.getJSON<AuthorizationResponse | undefined>(
+    authorizationsBucket,
+    req.paymentId,
+    true
+  )
+```
+
+<Info>
+You need to add the `vbase-read-write` policy to your `manifest.json` to persist responses.
+</Info>
+
+## Test card numbers
+
+The example connector provides test card numbers that trigger different payment flows. Use these cards to test various scenarios:
+
+### Card authorization flows
+
+| Card number | Flow | Behavior |
+| --- | --- | --- |
+| `4444333322221111` | Authorize | Immediately approved |
+| `4444333322221112` | Denied | Immediately denied |
+| `4222222222222224` | AsyncApproved | Pending, then approved via callback |
+| `4222222222222225` | AsyncDenied | Pending, then denied via callback |
+| Tokenized card (null) | Redirect | Redirect to payment page |
+
+### Implementation example
+
+The flow logic is defined in `node/flow.ts`:
+
+```typescript node/flow.ts
+const cardResponses: Record<CardNumber, Flow> = {
+  '4444333322221111': 'Authorize',
+  '4444333322221112': 'Denied',
+  '4222222222222224': 'AsyncApproved',
+  '4222222222222225': 'AsyncDenied',
+  null: 'Redirect',
+}
+```
+
+## Testing payment flows
+
+<Steps>
+  <Step title="Test immediate approval">
+    Use card `4444333322221111` to test successful authorization:
+
+    ```typescript
+    flows.Authorize = request =>
+      Authorizations.approve(request, {
+        authorizationId: randomString(),
+        nsu: randomString(),
+        tid: randomString(),
+      })
+    ```
+  </Step>
+
+  <Step title="Test immediate denial">
+    Use card `4444333322221112` to test declined payments:
+
+    ```typescript
+    flows.Denied = request =>
+      Authorizations.deny(request, { tid: randomString() })
+    ```
+  </Step>
+
+  <Step title="Test async approval">
+    Use card `4222222222222224` to test the retry flow:
+
+    ```typescript
+    flows.AsyncApproved = (request, retry) => {
+      retry(
+        Authorizations.approve(request, {
+          authorizationId: randomString(),
+          nsu: randomString(),
+          tid: randomString(),
+        })
+      )
+
+      return Authorizations.pending(request, {
+        delayToCancel: 1000,
+        tid: randomString(),
+      })
+    }
+    ```
+
+    <Note>
+    The `retry` callback asks the Payment Gateway to call the create payment route again. Your connector must return a consistent approved/denied response on subsequent calls.
+    </Note>
+  </Step>
+
+  <Step title="Test bank invoice">
+    Test bank invoice (boleto) payments:
+
+    ```typescript
+    flows.BankInvoice = (request, retry) => {
+      retry(
+        Authorizations.approve(request, {
+          authorizationId: randomString(),
+          nsu: randomString(),
+          tid: randomString(),
+        })
+      )
+
+      return Authorizations.pendingBankInvoice(request, {
+        delayToCancel: 1000,
+        paymentUrl: randomUrl(),
+        tid: randomString(),
+      })
+    }
+    ```
+  </Step>
+
+  <Step title="Test redirect flow">
+    Test redirect-based payment methods:
+
+    ```typescript
+    flows.Redirect = (request, retry) => {
+      retry(
+        Authorizations.approve(request, {
+          authorizationId: randomString(),
+          nsu: randomString(),
+          tid: randomString(),
+        })
+      )
+
+      return Authorizations.redirect(request, {
+        delayToCancel: 1000,
+        redirectUrl: randomUrl(),
+        tid: randomString(),
+      })
+    }
+    ```
+  </Step>
+
+  <Step title="Test cancellation">
+    Verify that cancellation requests are handled correctly:
+
+    ```typescript
+    public async cancel(
+      cancellation: CancellationRequest
+    ): Promise<CancellationResponse> {
+      if (this.isTestSuite) {
+        return Cancellations.approve(cancellation, {
+          cancellationId: randomString(),
+        })
+      }
+
+      throw new Error('Not implemented')
+    }
+    ```
+  </Step>
+
+  <Step title="Test settlement and refund">
+    Implement settlement and refund flows:
+
+    ```typescript
+    public async settle(
+      settlement: SettlementRequest
+    ): Promise<SettlementResponse> {
+      if (this.isTestSuite) {
+        return Settlements.deny(settlement)
+      }
+
+      throw new Error('Not implemented')
+    }
+
+    public async refund(refund: RefundRequest): Promise<RefundResponse> {
+      if (this.isTestSuite) {
+        return Refunds.deny(refund)
+      }
+
+      throw new Error('Not implemented')
+    }
+    ```
+  </Step>
+</Steps>
+
+## Testing with IO Connectors
+
+To test your connector in a real VTEX store environment:
+
+<Warning>
+Your account MUST BE ALLOWED to use IO Connectors. Submit a request in the `#provider-review` Slack channel using the "Allow Account to test" workflow.
+</Warning>
+
+<Steps>
+  <Step title="Launch a beta version">
+    Publish a beta version of your connector:
+
+    ```bash
+    vtex publish --tag beta
+    ```
+
+    This creates a version like `vtex.payment-provider-test@0.1.0-beta`.
+  </Step>
+
+  <Step title="Install on master workspace">
+    Install the beta version on your master workspace:
+
+    ```bash
+    vtex install vtex.payment-provider-test@0.1.0-beta
+    ```
+
+    Wait approximately 1 hour for the installation to complete.
+  </Step>
+
+  <Step title="Configure the connector">
+    Go to the connector configuration page:
+
+    ```
+    https://${account}.myvtex.com/admin/pci-gateway/#/affiliations/vtex-payment-provider-test-v0/
+    ```
+
+    The URL format is: `${vendor}-${appName}-${appMajor}`
+  </Step>
+
+  <Step title="Enable test mode">
+    1. Change the toggle configuration to **Test**
+    2. Click **Save** and refresh the page
+    3. Re-enter the configuration
+    4. Set the `workspace` field (you can use `master` or your development workspace)
+  </Step>
+
+  <Step title="Configure payment condition">
+    Configure a payment condition with your newly created connector and wait 10 minutes for it to appear on checkout.
+  </Step>
+
+  <Step title="Place test orders">
+    Make sure you have products for sale in your store, then place test orders using the test card numbers to verify all payment flows work correctly.
+  </Step>
+</Steps>
+
+## Retry flow vs callback flow
+
+<Info>
+Callback flow is replaced by retry flow for IO Connectors. Payment Providers implemented using VTEX IO cannot callback the Payment Gateway directly with payment status updates.
+</Info>
+
+Instead of callbacks, use the retry mechanism:
+
+```typescript
+// Request a retry from Payment Gateway
+this.retry(request)
+```
+
+The retry flow allows your connector to ask the Payment Gateway to call the create payment route again. Your connector must respond with approved/denied consistently.
+
+![Retry Flow Diagram](https://user-images.githubusercontent.com/5839364/138521406-fe3875c1-92ae-4064-aafe-c4c5de56427e.png)
+
+## Next steps
+
+Once your connector passes all tests:
+
+- Review the [Publishing to VTEX App Store](/deployment/publishing) guide
+- Prepare for [Production deployment](/deployment/production)

@@ -1,0 +1,177 @@
+---
+title: VTEX Payment Provider Framework
+description: Build secure, scalable payment connectors for the VTEX platform using the Payment Provider Protocol
+---
+
+<Note>
+This framework is in **BETA** stage. It's recommended for connectors with rollout dates at least 3 months away to allow time for investigation and prioritization of any new scenarios.
+</Note>
+
+## What is the Payment Provider Framework?
+
+The VTEX Payment Provider Framework is a powerful toolkit for building payment connectors that integrate with the VTEX e-commerce platform. It implements the [Payment Provider Protocol](https://help.vtex.com/en/tutorial/payment-provider-protocol) and provides all the infrastructure you need to process payments securely and efficiently.
+
+Built on VTEX IO, the framework handles the complexity of payment processing, allowing you to focus on integrating with your specific payment gateway.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Payment Provider Protocol" icon="file-contract">
+    Complete implementation of VTEX's standardized payment protocol with automatic route generation and type-safe interfaces
+  </Card>
+  
+  <Card title="Multiple payment methods" icon="credit-card">
+    Support for credit cards, debit cards, bank invoices, and custom payment methods with flexible configuration
+  </Card>
+  
+  <Card title="Secure Proxy for PCI compliance" icon="shield-check">
+    Process card payments without PCI certification by routing sensitive data through VTEX's secure proxy
+  </Card>
+  
+  <Card title="Split payment support" icon="scissors">
+    Built-in capabilities for payment splitting across multiple recipients on authorization or capture
+  </Card>
+  
+  <Card title="OAuth configuration flow" icon="key">
+    Streamlined authentication setup with optional OAuth support for merchant onboarding
+  </Card>
+  
+  <Card title="Async payment handling" icon="clock">
+    Retry mechanism for asynchronous payment flows with automatic callback management
+  </Card>
+  
+  <Card title="VBase persistence" icon="database">
+    Integrated state management using VTEX VBase for storing payment data and transaction history
+  </Card>
+  
+  <Card title="Type-safe development" icon="code">
+    Full TypeScript support with comprehensive type definitions for all protocol entities
+  </Card>
+</CardGroup>
+
+## How it works
+
+The framework provides an abstract `PaymentProvider` class that you extend with your custom implementation. Each payment operation (authorize, cancel, refund, settle) is implemented as a method that receives strongly-typed request objects and returns response objects.
+
+```typescript node/connector.ts
+import { PaymentProvider, AuthorizationRequest, AuthorizationResponse } from '@vtex/payment-provider'
+
+export default class MyPaymentConnector extends PaymentProvider {
+  public async authorize(request: AuthorizationRequest): Promise<AuthorizationResponse> {
+    // Your payment gateway integration logic
+  }
+  
+  public async cancel(cancellation: CancellationRequest): Promise<CancellationResponse> {
+    // Handle payment cancellation
+  }
+  
+  // Additional methods for refund, settle, and inbound webhooks
+}
+```
+
+The `PaymentProviderService` automatically sets up all required routes and handles protocol compliance:
+
+```typescript node/index.ts
+import { PaymentProviderService } from '@vtex/payment-provider'
+import MyPaymentConnector from './connector'
+
+export default new PaymentProviderService({
+  connector: MyPaymentConnector,
+})
+```
+
+## Payment flow overview
+
+Here's how a typical payment transaction flows through your connector:
+
+<Steps>
+  <Step title="Customer places order">
+    The customer completes checkout and submits payment information through the VTEX storefront
+  </Step>
+  
+  <Step title="Payment authorization">
+    VTEX Gateway calls your connector's `/payments` endpoint with an `AuthorizationRequest` containing payment details
+  </Step>
+  
+  <Step title="Process with gateway">
+    Your connector communicates with your payment gateway to authorize the transaction
+  </Step>
+  
+  <Step title="Return response">
+    Your connector returns an `AuthorizationResponse` indicating approval, denial, or pending status
+  </Step>
+  
+  <Step title="Settlement (capture)">
+    When the order is invoiced, VTEX calls the `/settlements` endpoint to capture the authorized amount
+  </Step>
+</Steps>
+
+## Supported payment methods
+
+Configure which payment methods your connector accepts in `paymentProvider/configuration.json`:
+
+```json paymentProvider/configuration.json
+{
+  "name": "MyConnector",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ]
+}
+```
+
+Supported payment method names include: Visa, Mastercard, American Express, Diners, Elo, Hipercard, BankInvoice, and more.
+
+## Architecture benefits
+
+**Built on VTEX IO**: Leverage the full VTEX IO platform with automatic scaling, monitoring, and deployment pipelines.
+
+**Type safety**: TypeScript interfaces ensure your implementation matches the protocol specification, catching errors at compile time.
+
+**Security by default**: Sensitive card data is tokenized and routed through Secure Proxy, keeping your connector PCI compliant without certification.
+
+**State management**: VBase integration provides reliable persistence for async operations and transaction tracking.
+
+**Extensibility**: Add custom routes, clients, and middleware while maintaining protocol compliance.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Prerequisites" icon="list-check" href="/prerequisites">
+    Set up your development environment and install required tools
+  </Card>
+  
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first payment connector in minutes
+  </Card>
+  
+  <Card title="API reference" icon="book" href="/api/payment-provider">
+    Explore the complete API documentation
+  </Card>
+  
+  <Card title="Testing guide" icon="flask" href="/deployment/testing">
+    Learn how to test your connector with the VTEX test suite
+  </Card>
+</CardGroup>
+
+## Community and support
+
+Join the VTEX developer community for help and updates:
+
+- **GitHub**: [vtex-apps/payment-provider-example](https://github.com/vtex-apps/payment-provider-example)
+- **Developer Portal**: [developers.vtex.com](https://developers.vtex.com)
+- **Help Center**: [Payment Provider Protocol documentation](https://help.vtex.com/en/tutorial/payment-provider-protocol)
+
+<Warning>
+Before deploying to production, ensure your connector passes all tests in the VTEX payment test suite. Refer to the [Testing guide](/deployment/testing) for complete instructions.
+</Warning>

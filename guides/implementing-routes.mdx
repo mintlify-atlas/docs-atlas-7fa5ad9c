@@ -1,0 +1,474 @@
+---
+title: Implementing the required routes
+description: Learn how to implement authorize, cancel, settle, and refund routes for your payment connector
+---
+
+This guide covers the implementation of the four required routes for a VTEX payment connector: authorize, cancel, settle, and refund. You'll learn about request/response formats, response helpers, and asynchronous payment flows.
+
+## Overview of payment routes
+
+Every payment connector must implement four core methods:
+
+<CardGroup cols={2}>
+  <Card title="authorize" icon="credit-card">
+    Validates and authorizes a payment transaction
+  </Card>
+  <Card title="cancel" icon="xmark">
+    Cancels an authorized payment before settlement
+  </Card>
+  <Card title="settle" icon="check">
+    Captures/settles an authorized payment
+  </Card>
+  <Card title="refund" icon="rotate-left">
+    Refunds a settled payment
+  </Card>
+</CardGroup>
+
+## Authorization route
+
+The authorization route is the most complex route, handling payment validation and supporting multiple payment flows.
+
+### Basic authorization implementation
+
+<Steps>
+
+<Step title="Import required types and helpers">
+
+```typescript
+import {
+  AuthorizationRequest,
+  AuthorizationResponse,
+  Authorizations,
+  PaymentProvider,
+} from '@vtex/payment-provider'
+```
+
+</Step>
+
+<Step title="Implement the authorize method">
+
+```typescript
+export default class TestSuiteApprover extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Validate the payment request
+    // Communicate with your payment gateway
+    // Return an appropriate response
+    
+    return Authorizations.approve(authorization, {
+      authorizationId: 'unique-auth-id',
+      nsu: 'unique-nsu',
+      tid: 'transaction-id',
+    })
+  }
+}
+```
+
+</Step>
+
+</Steps>
+
+### Authorization response types
+
+The `@vtex/payment-provider` package provides helper methods for different authorization responses:
+
+<CodeGroup>
+
+```typescript Approve
+import { Authorizations } from '@vtex/payment-provider'
+
+// Approve the authorization immediately
+Authorizations.approve(request, {
+  authorizationId: 'unique-auth-id',
+  nsu: 'network-sequence-number',
+  tid: 'transaction-id',
+})
+```
+
+```typescript Deny
+import { Authorizations } from '@vtex/payment-provider'
+
+// Deny the authorization
+Authorizations.deny(request, {
+  tid: 'transaction-id',
+})
+```
+
+```typescript Pending
+import { Authorizations } from '@vtex/payment-provider'
+
+// Mark as pending for async processing
+Authorizations.pending(request, {
+  delayToCancel: 1000,
+  tid: 'transaction-id',
+})
+```
+
+```typescript Redirect
+import { Authorizations } from '@vtex/payment-provider'
+
+// Redirect user to external payment page
+Authorizations.redirect(request, {
+  delayToCancel: 1000,
+  redirectUrl: 'https://payment-gateway.com/checkout',
+  tid: 'transaction-id',
+})
+```
+
+```typescript Bank invoice
+import { Authorizations } from '@vtex/payment-provider'
+
+// Generate bank invoice (boleto)
+Authorizations.pendingBankInvoice(request, {
+  delayToCancel: 1000,
+  paymentUrl: 'https://payment-gateway.com/invoice/12345',
+  tid: 'transaction-id',
+})
+```
+
+</CodeGroup>
+
+### Handling different payment methods
+
+Use type guards to handle different payment method types:
+
+```typescript
+import {
+  isCardAuthorization,
+  isBankInvoiceAuthorization,
+  isTokenizedCard,
+} from '@vtex/payment-provider'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Handle bank invoice payments
+    if (isBankInvoiceAuthorization(authorization)) {
+      return this.handleBankInvoice(authorization)
+    }
+    
+    // Handle card payments
+    if (isCardAuthorization(authorization)) {
+      const { card } = authorization
+      
+      if (isTokenizedCard(card)) {
+        // Handle tokenized card
+        return this.handleTokenizedCard(authorization, card)
+      } else {
+        // Handle regular card
+        return this.handleRegularCard(authorization, card)
+      }
+    }
+    
+    // Default handling
+    return Authorizations.deny(authorization, { tid: 'unknown-method' })
+  }
+}
+```
+
+### Asynchronous authorization flow
+
+For payments that require async processing, use the callback mechanism:
+
+```typescript
+import { VBase } from '@vtex/api'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  private async saveAndRetry(
+    req: AuthorizationRequest,
+    resp: AuthorizationResponse
+  ) {
+    // Persist the response
+    await this.context.clients.vbase.saveJSON(
+      'authorizations',
+      resp.paymentId,
+      resp
+    )
+    
+    // Send callback to VTEX
+    this.callback(req, resp)
+  }
+
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    // Return pending response immediately
+    const pendingResponse = Authorizations.pending(authorization, {
+      delayToCancel: 1000,
+      tid: 'pending-transaction',
+    })
+    
+    // Process asynchronously and callback later
+    this.processPaymentAsync(authorization).then(finalResponse => {
+      this.saveAndRetry(authorization, finalResponse)
+    })
+    
+    return pendingResponse
+  }
+}
+```
+
+<Note>
+Ensure the `outbound-access` policy is configured in your `manifest.json` to enable callbacks to VTEX.
+</Note>
+
+## Cancellation route
+
+The cancellation route handles canceling authorized but not yet settled payments.
+
+### Basic cancellation implementation
+
+```typescript
+import {
+  CancellationRequest,
+  CancellationResponse,
+  Cancellations,
+} from '@vtex/payment-provider'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  public async cancel(
+    cancellation: CancellationRequest
+  ): Promise<CancellationResponse> {
+    // Communicate with your payment gateway to cancel the transaction
+    // Return appropriate response
+    
+    return Cancellations.approve(cancellation, {
+      cancellationId: 'unique-cancellation-id',
+    })
+  }
+}
+```
+
+### Cancellation response helpers
+
+<CodeGroup>
+
+```typescript Approve
+import { Cancellations } from '@vtex/payment-provider'
+
+Cancellations.approve(request, {
+  cancellationId: 'unique-cancellation-id',
+})
+```
+
+```typescript Deny
+import { Cancellations } from '@vtex/payment-provider'
+
+Cancellations.deny(request)
+```
+
+</CodeGroup>
+
+## Settlement route
+
+The settlement route captures/settles an authorized payment.
+
+### Basic settlement implementation
+
+```typescript
+import {
+  SettlementRequest,
+  SettlementResponse,
+  Settlements,
+} from '@vtex/payment-provider'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  public async settle(
+    settlement: SettlementRequest
+  ): Promise<SettlementResponse> {
+    // Communicate with your payment gateway to settle the transaction
+    // Return appropriate response
+    
+    return Settlements.approve(settlement, {
+      settleId: 'unique-settlement-id',
+    })
+  }
+}
+```
+
+### Settlement response helpers
+
+<CodeGroup>
+
+```typescript Approve
+import { Settlements } from '@vtex/payment-provider'
+
+Settlements.approve(request, {
+  settleId: 'unique-settlement-id',
+})
+```
+
+```typescript Deny
+import { Settlements } from '@vtex/payment-provider'
+
+Settlements.deny(request)
+```
+
+</CodeGroup>
+
+## Refund route
+
+The refund route handles refunding a settled payment.
+
+### Basic refund implementation
+
+```typescript
+import {
+  RefundRequest,
+  RefundResponse,
+  Refunds,
+} from '@vtex/payment-provider'
+
+export default class TestSuiteApprover extends PaymentProvider {
+  public async refund(refund: RefundRequest): Promise<RefundResponse> {
+    // Communicate with your payment gateway to refund the transaction
+    // Return appropriate response
+    
+    return Refunds.approve(refund, {
+      refundId: 'unique-refund-id',
+    })
+  }
+}
+```
+
+### Refund response helpers
+
+<CodeGroup>
+
+```typescript Approve
+import { Refunds } from '@vtex/payment-provider'
+
+Refunds.approve(request, {
+  refundId: 'unique-refund-id',
+})
+```
+
+```typescript Deny
+import { Refunds } from '@vtex/payment-provider'
+
+Refunds.deny(request)
+```
+
+</CodeGroup>
+
+## Complete example
+
+Here's a complete example from the TestSuiteApprover connector:
+
+```typescript node/connector.ts
+import {
+  AuthorizationRequest,
+  AuthorizationResponse,
+  CancellationRequest,
+  CancellationResponse,
+  Cancellations,
+  PaymentProvider,
+  RefundRequest,
+  RefundResponse,
+  Refunds,
+  SettlementRequest,
+  SettlementResponse,
+  Settlements,
+} from '@vtex/payment-provider'
+import { VBase } from '@vtex/api'
+
+import { randomString } from './utils'
+import { executeAuthorization } from './flow'
+
+const authorizationsBucket = 'authorizations'
+
+const persistAuthorizationResponse = async (
+  vbase: VBase,
+  resp: AuthorizationResponse
+) => vbase.saveJSON(authorizationsBucket, resp.paymentId, resp)
+
+const getPersistedAuthorizationResponse = async (
+  vbase: VBase,
+  req: AuthorizationRequest
+) =>
+  vbase.getJSON<AuthorizationResponse | undefined>(
+    authorizationsBucket,
+    req.paymentId,
+    true
+  )
+
+export default class TestSuiteApprover extends PaymentProvider {
+  private async saveAndRetry(
+    req: AuthorizationRequest,
+    resp: AuthorizationResponse
+  ) {
+    await persistAuthorizationResponse(this.context.clients.vbase, resp)
+    this.callback(req, resp)
+  }
+
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    if (this.isTestSuite) {
+      const persistedResponse = await getPersistedAuthorizationResponse(
+        this.context.clients.vbase,
+        authorization
+      )
+
+      if (persistedResponse !== undefined && persistedResponse !== null) {
+        return persistedResponse
+      }
+
+      return executeAuthorization(authorization, response =>
+        this.saveAndRetry(authorization, response)
+      )
+    }
+
+    throw new Error('Not implemented')
+  }
+
+  public async cancel(
+    cancellation: CancellationRequest
+  ): Promise<CancellationResponse> {
+    if (this.isTestSuite) {
+      return Cancellations.approve(cancellation, {
+        cancellationId: randomString(),
+      })
+    }
+
+    throw new Error('Not implemented')
+  }
+
+  public async refund(refund: RefundRequest): Promise<RefundResponse> {
+    if (this.isTestSuite) {
+      return Refunds.deny(refund)
+    }
+
+    throw new Error('Not implemented')
+  }
+
+  public async settle(
+    settlement: SettlementRequest
+  ): Promise<SettlementResponse> {
+    if (this.isTestSuite) {
+      return Settlements.deny(settlement)
+    }
+
+    throw new Error('Not implemented')
+  }
+
+  public inbound: undefined
+}
+```
+
+<Warning>
+Always implement proper error handling and validation in production code. The example above uses simplified logic for demonstration purposes.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure your connector with manifest and service settings
+  </Card>
+  <Card title="Payment methods" icon="credit-card" href="/guides/payment-methods">
+    Configure supported payment methods
+  </Card>
+</CardGroup>

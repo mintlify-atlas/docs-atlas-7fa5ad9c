@@ -1,0 +1,483 @@
+---
+title: Payment flows
+description: Learn about the different payment flows supported by the VTEX Payment Provider framework
+---
+
+The VTEX Payment Provider framework supports multiple payment flows to handle different scenarios and payment methods. Each flow follows a specific pattern and returns appropriate responses to the Payment Gateway.
+
+## Flow types overview
+
+The framework implements six distinct payment flows:
+
+**Location**: `node/flow.ts:12-27`
+
+```typescript
+type Flow =
+  | 'Authorize'      // Immediate approval
+  | 'Denied'         // Immediate denial
+  | 'Cancel'         // Cancellation (uses Authorize flow)
+  | 'AsyncApproved'  // Asynchronous approval
+  | 'AsyncDenied'    // Asynchronous denial
+  | 'BankInvoice'    // Bank invoice/boleto
+  | 'Redirect'       // Redirect to external page
+```
+
+## Immediate authorization flow
+
+The simplest flow where the payment is approved or denied immediately.
+
+### Authorize flow
+
+**Location**: `node/flow.ts:28-33`
+
+```typescript
+Authorize: request =>
+  Authorizations.approve(request, {
+    authorizationId: randomString(),
+    nsu: randomString(),
+    tid: randomString(),
+  })
+```
+
+<Steps>
+
+<Step title="Request received">
+VTEX sends an authorization request to your connector.
+</Step>
+
+<Step title="Immediate processing">
+Your connector processes the payment synchronously and determines the result.
+</Step>
+
+<Step title="Approval response">
+Return an `approved` status with transaction identifiers:
+- `authorizationId`: Unique authorization identifier
+- `nsu`: Network Service Unit number
+- `tid`: Transaction ID
+</Step>
+
+</Steps>
+
+**Response example**:
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "approved",
+  "tid": "TID1234567890",
+  "authorizationId": "AUTH123456",
+  "nsu": "NSU1234567",
+  "code": "APP123"
+}
+```
+
+### Denied flow
+
+**Location**: `node/flow.ts:35`
+
+```typescript
+Denied: request => Authorizations.deny(request, { tid: randomString() })
+```
+
+Returns a `denied` status immediately when payment cannot be processed.
+
+**Response example**:
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "denied",
+  "tid": "TID1234567890",
+  "code": "DENIED",
+  "message": "Insufficient funds"
+}
+```
+
+## Asynchronous flows
+
+For payments that require external processing time, use asynchronous flows with the retry mechanism.
+
+### AsyncApproved flow
+
+Returns `pending` immediately, then uses retry to notify VTEX of approval.
+
+**Location**: `node/flow.ts:39-52`
+
+```typescript
+AsyncApproved: (request, retry) => {
+  retry(
+    Authorizations.approve(request, {
+      authorizationId: randomString(),
+      nsu: randomString(),
+      tid: randomString(),
+    })
+  )
+
+  return Authorizations.pending(request, {
+    delayToCancel: 1000,
+    tid: randomString(),
+  })
+}
+```
+
+<Steps>
+
+<Step title="Return pending status">
+Immediately return `pending` to VTEX with a `delayToCancel` value.
+</Step>
+
+<Step title="Process asynchronously">
+Your connector processes the payment in the background.
+</Step>
+
+<Step title="Call retry function">
+Once processing completes, call the retry function with the final `approved` result.
+</Step>
+
+<Step title="VTEX requests status">
+VTEX calls your authorization endpoint again to retrieve the final status.
+</Step>
+
+<Step title="Return persisted result">
+Your connector returns the approved status that was persisted when retry was called.
+</Step>
+
+</Steps>
+
+<Warning>
+You must persist the final authorization response in VBase before calling retry. When VTEX requests the status again, return the exact same response.
+</Warning>
+
+**Initial pending response**:
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "pending",
+  "tid": "TID1234567890",
+  "delayToCancel": 1000
+}
+```
+
+**Final approved response (after retry)**:
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "approved",
+  "tid": "TID1234567890",
+  "authorizationId": "AUTH123456",
+  "nsu": "NSU1234567"
+}
+```
+
+### AsyncDenied flow
+
+Similar to AsyncApproved, but the final result is denial.
+
+**Location**: `node/flow.ts:54-61`
+
+```typescript
+AsyncDenied: (request, retry) => {
+  retry(Authorizations.deny(request, { tid: randomString() }))
+
+  return Authorizations.pending(request, {
+    delayToCancel: 1000,
+    tid: randomString(),
+  })
+}
+```
+
+## Bank invoice flow
+
+For payment methods like Brazilian boleto that require customer action.
+
+**Location**: `node/flow.ts:63-77`
+
+```typescript
+BankInvoice: (request, retry) => {
+  retry(
+    Authorizations.approve(request, {
+      authorizationId: randomString(),
+      nsu: randomString(),
+      tid: randomString(),
+    })
+  )
+
+  return Authorizations.pendingBankInvoice(request, {
+    delayToCancel: 1000,
+    paymentUrl: randomUrl(),
+    tid: randomString(),
+  })
+}
+```
+
+<Steps>
+
+<Step title="Generate bank invoice">
+Create the bank invoice (boleto) with your payment provider.
+</Step>
+
+<Step title="Return pending with payment URL">
+Return `pending` status with a `paymentUrl` where the customer can view/pay the invoice.
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "pending",
+  "tid": "TID1234567890",
+  "paymentUrl": "https://provider.com/invoice/12345",
+  "delayToCancel": 86400000
+}
+```
+</Step>
+
+<Step title="Customer pays invoice">
+The customer accesses the URL and completes payment through their bank.
+</Step>
+
+<Step title="Receive payment confirmation">
+Your payment provider notifies you when payment is received.
+</Step>
+
+<Step title="Call retry with approval">
+Notify VTEX that the payment is approved using the retry mechanism.
+</Step>
+
+</Steps>
+
+<Note>
+Bank invoice flows typically have longer `delayToCancel` values (e.g., 7 days) since customers may take time to pay.
+</Note>
+
+## Redirect flow
+
+For payment methods that require redirecting the customer to an external authentication page.
+
+**Location**: `node/flow.ts:79-93`
+
+```typescript
+Redirect: (request, retry) => {
+  retry(
+    Authorizations.approve(request, {
+      authorizationId: randomString(),
+      nsu: randomString(),
+      tid: randomString(),
+    })
+  )
+
+  return Authorizations.redirect(request, {
+    delayToCancel: 1000,
+    redirectUrl: randomUrl(),
+    tid: randomString(),
+  })
+}
+```
+
+<Steps>
+
+<Step title="Return pending with redirect URL">
+Return `pending` status with a `redirectUrl` where the customer will complete authentication.
+
+```json
+{
+  "paymentId": "F5C1A4E20D3B4E07B7E871F5B5BC9F91",
+  "status": "pending",
+  "tid": "TID1234567890",
+  "redirectUrl": "https://provider.com/auth?token=abc123",
+  "delayToCancel": 1000
+}
+```
+</Step>
+
+<Step title="Customer redirected">
+VTEX redirects the customer to the provided URL for authentication (e.g., 3DS, bank login).
+</Step>
+
+<Step title="External authentication">
+Customer completes authentication on the payment provider's page.
+</Step>
+
+<Step title="Return to store">
+After authentication, customer is redirected back to the store.
+</Step>
+
+<Step title="Retry with final status">
+Your connector uses retry to provide the final payment status to VTEX.
+</Step>
+
+</Steps>
+
+<Info>
+Common use cases for redirect flow include 3D Secure authentication, PayPal checkout, and bank transfer authentication.
+</Info>
+
+## Flow selection logic
+
+The framework automatically selects the appropriate flow based on the request data.
+
+**Location**: `node/flow.ts:111-122`
+
+```typescript
+const findFlow = (request: AuthorizationRequest): Flow => {
+  if (isBankInvoiceAuthorization(request)) return 'BankInvoice'
+
+  if (isCardAuthorization(request)) {
+    const { card } = request
+    const cardNumber = isTokenizedCard(card) ? null : card.number
+
+    return cardResponses[cardNumber as CardNumber]
+  }
+
+  return 'Authorize'
+}
+```
+
+### Test card numbers
+
+For testing purposes, specific card numbers trigger different flows:
+
+**Location**: `node/flow.ts:103-109`
+
+```typescript
+const cardResponses: Record<CardNumber, Flow> = {
+  '4444333322221111': 'Authorize',
+  '4444333322221112': 'Denied',
+  '4222222222222224': 'AsyncApproved',
+  '4222222222222225': 'AsyncDenied',
+  null: 'Redirect',
+}
+```
+
+<Tabs>
+<Tab title="Immediate approval">
+**Card**: 4444333322221111
+
+**Flow**: Authorize
+
+**Result**: Approved immediately
+</Tab>
+
+<Tab title="Immediate denial">
+**Card**: 4444333322221112
+
+**Flow**: Denied
+
+**Result**: Denied immediately
+</Tab>
+
+<Tab title="Async approval">
+**Card**: 4222222222222224
+
+**Flow**: AsyncApproved
+
+**Result**: Pending, then approved via retry
+</Tab>
+
+<Tab title="Async denial">
+**Card**: 4222222222222225
+
+**Flow**: AsyncDenied
+
+**Result**: Pending, then denied via retry
+</Tab>
+
+<Tab title="Redirect">
+**Card**: Tokenized (no card number)
+
+**Flow**: Redirect
+
+**Result**: Pending with redirect URL
+</Tab>
+</Tabs>
+
+## Cancel flow
+
+The cancel flow is triggered when a cancellation request is received.
+
+**Location**: `node/flow.ts:37`
+
+```typescript
+Cancel: (request, retry) => flows.Authorize(request, retry)
+```
+
+In the example implementation, cancel reuses the Authorize flow logic. In a real connector, you would:
+
+1. Call your payment provider's cancellation endpoint
+2. Return a cancellation response with the cancellation ID
+
+**Example implementation**: `node/connector.ts:70-80`
+
+```typescript
+public async cancel(
+  cancellation: CancellationRequest
+): Promise<CancellationResponse> {
+  return Cancellations.approve(cancellation, {
+    cancellationId: randomString(),
+  })
+}
+```
+
+## Settlement and refund flows
+
+These are separate operations from authorization:
+
+### Settlement (capture)
+
+Captures funds from a previously authorized payment.
+
+**Location**: `node/connector.ts:90-97`
+
+```typescript
+public async settle(
+  settlement: SettlementRequest
+): Promise<SettlementResponse> {
+  return Settlements.deny(settlement)
+}
+```
+
+### Refund
+
+Returns funds from a captured payment.
+
+**Location**: `node/connector.ts:82-88`
+
+```typescript
+public async refund(refund: RefundRequest): Promise<RefundResponse> {
+  return Refunds.deny(refund)
+}
+```
+
+<Warning>
+The example implementation denies settlements and refunds. In production, implement proper logic to call your payment provider's capture and refund endpoints.
+</Warning>
+
+## Flow execution
+
+The main execution function ties everything together:
+
+**Location**: `node/flow.ts:124-131`
+
+```typescript
+export const executeAuthorization = (
+  request: AuthorizationRequest,
+  retry: (response: AuthorizationResponse) => void
+): AuthorizationResponse => {
+  const flow = findFlow(request)
+
+  return flows[flow](request, retry)
+}
+```
+
+This function:
+1. Determines which flow to use based on the request
+2. Executes the appropriate flow logic
+3. Returns the authorization response
+
+## Best practices
+
+1. **Always persist before retry**: Save the final response to VBase before calling the retry function
+2. **Return consistent responses**: When VTEX retries, return the exact same response
+3. **Set appropriate delays**: Use realistic `delayToCancel` values based on expected processing time
+4. **Handle all payment methods**: Implement logic for cards, bank invoices, and redirect-based methods
+5. **Test each flow**: Use the test card numbers to validate all flows work correctly

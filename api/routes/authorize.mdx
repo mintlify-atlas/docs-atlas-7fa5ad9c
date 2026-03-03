@@ -1,0 +1,368 @@
+---
+title: 'authorize()'
+description: 'Process payment authorization requests and handle different payment flows'
+---
+
+## Overview
+
+The `authorize()` method is the core payment processing route that handles authorization requests from VTEX. It supports multiple authorization flows including immediate approval/denial, asynchronous processing, bank invoice generation, and redirect-based authentication.
+
+## Method signature
+
+```typescript
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse>
+```
+
+## Parameters
+
+<ParamField path="authorization" type="AuthorizationRequest" required>
+  The authorization request object from VTEX containing payment details.
+
+  <ParamField path="authorization.paymentId" type="string" required>
+    Unique identifier for the payment transaction
+  </ParamField>
+
+  <ParamField path="authorization.transactionId" type="string" required>
+    VTEX transaction identifier
+  </ParamField>
+
+  <ParamField path="authorization.paymentMethod" type="string" required>
+    Payment method type (e.g., "Visa", "Mastercard", "BankInvoice")
+  </ParamField>
+
+  <ParamField path="authorization.merchantName" type="string" required>
+    Name of the merchant requesting authorization
+  </ParamField>
+
+  <ParamField path="authorization.value" type="number" required>
+    Payment amount in cents
+  </ParamField>
+
+  <ParamField path="authorization.currency" type="string" required>
+    Three-letter ISO currency code (e.g., "USD", "BRL")
+  </ParamField>
+
+  <ParamField path="authorization.card" type="CardAuthorization | TokenizedCard" optional>
+    Card payment details (for card-based transactions)
+    
+    <ParamField path="authorization.card.number" type="string">
+      Card number (for non-tokenized cards)
+    </ParamField>
+    
+    <ParamField path="authorization.card.holder" type="string">
+      Cardholder name
+    </ParamField>
+    
+    <ParamField path="authorization.card.expiration" type="object">
+      Card expiration date
+    </ParamField>
+    
+    <ParamField path="authorization.card.csc" type="string">
+      Card security code
+    </ParamField>
+  </ParamField>
+
+  <ParamField path="authorization.miniCart" type="object" optional>
+    Shopping cart details for the transaction
+  </ParamField>
+</ParamField>
+
+## Response
+
+<ResponseField name="response" type="AuthorizationResponse">
+  The authorization response indicating the result of the payment authorization.
+
+  <ResponseField name="paymentId" type="string" required>
+    Echo of the payment identifier from the request
+  </ResponseField>
+
+  <ResponseField name="status" type="string" required>
+    Authorization status: `approved`, `denied`, or `undefined` (pending)
+  </ResponseField>
+
+  <ResponseField name="tid" type="string" required>
+    Transaction identifier from the payment provider
+  </ResponseField>
+
+  <ResponseField name="authorizationId" type="string" optional>
+    Authorization identifier (present when approved)
+  </ResponseField>
+
+  <ResponseField name="nsu" type="string" optional>
+    Unique sequential number (NSU) for approved transactions
+  </ResponseField>
+
+  <ResponseField name="delayToCancel" type="number" optional>
+    Milliseconds to wait before canceling pending transactions
+  </ResponseField>
+
+  <ResponseField name="paymentUrl" type="string" optional>
+    URL for bank invoice payment (bank invoice flow)
+  </ResponseField>
+
+  <ResponseField name="redirectUrl" type="string" optional>
+    URL to redirect user for authentication (redirect flow)
+  </ResponseField>
+
+  <ResponseField name="message" type="string" optional>
+    Human-readable status message
+  </ResponseField>
+</ResponseField>
+
+## Authorization flows
+
+The `authorize()` method implements different flows based on the payment method and card details:
+
+<Tabs>
+  <Tab title="Immediate approval">
+    **Card number**: `4444333322221111`
+
+    Immediately approves the authorization with all required identifiers.
+
+    ```typescript
+    {
+      paymentId: "ABC123",
+      status: "approved",
+      tid: "TID-XYZ789",
+      authorizationId: "AUTH-456",
+      nsu: "NSU-789"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Immediate denial">
+    **Card number**: `4444333322221112`
+
+    Immediately denies the authorization.
+
+    ```typescript
+    {
+      paymentId: "ABC123",
+      status: "denied",
+      tid: "TID-XYZ789",
+      message: "Authorization denied"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Async approved">
+    **Card number**: `4222222222222224`
+
+    Returns pending status, then asynchronously approves via callback.
+
+    ```typescript
+    // Initial response
+    {
+      paymentId: "ABC123",
+      status: undefined,
+      tid: "TID-XYZ789",
+      delayToCancel: 1000
+    }
+
+    // Callback response (async)
+    {
+      paymentId: "ABC123",
+      status: "approved",
+      tid: "TID-XYZ789",
+      authorizationId: "AUTH-456",
+      nsu: "NSU-789"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Async denied">
+    **Card number**: `4222222222222225`
+
+    Returns pending status, then asynchronously denies via callback.
+
+    ```typescript
+    // Initial response
+    {
+      paymentId: "ABC123",
+      status: undefined,
+      tid: "TID-XYZ789",
+      delayToCancel: 1000
+    }
+
+    // Callback response (async)
+    {
+      paymentId: "ABC123",
+      status: "denied",
+      tid: "TID-XYZ789"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Bank invoice">
+    **Payment method**: `BankInvoice`
+
+    Generates a payment URL for bank invoice payment.
+
+    ```typescript
+    // Initial response
+    {
+      paymentId: "ABC123",
+      status: undefined,
+      tid: "TID-XYZ789",
+      delayToCancel: 1000,
+      paymentUrl: "https://payment.example.com/invoice/ABC123"
+    }
+
+    // Callback after payment (async)
+    {
+      paymentId: "ABC123",
+      status: "approved",
+      tid: "TID-XYZ789",
+      authorizationId: "AUTH-456",
+      nsu: "NSU-789"
+    }
+    ```
+  </Tab>
+
+  <Tab title="Redirect">
+    **Card**: Tokenized card (no card number)
+
+    Redirects user to external authentication page.
+
+    ```typescript
+    // Initial response
+    {
+      paymentId: "ABC123",
+      status: undefined,
+      tid: "TID-XYZ789",
+      delayToCancel: 1000,
+      redirectUrl: "https://auth.example.com/verify/ABC123"
+    }
+
+    // Callback after authentication (async)
+    {
+      paymentId: "ABC123",
+      status: "approved",
+      tid: "TID-XYZ789",
+      authorizationId: "AUTH-456",
+      nsu: "NSU-789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Implementation
+
+The test suite implementation demonstrates key patterns:
+
+<CodeGroup>
+```typescript connector.ts
+public async authorize(
+  authorization: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  if (this.isTestSuite) {
+    // Check for persisted response (idempotency)
+    const persistedResponse = await getPersistedAuthorizationResponse(
+      this.context.clients.vbase,
+      authorization
+    )
+
+    if (persistedResponse !== undefined && persistedResponse !== null) {
+      return persistedResponse
+    }
+
+    // Execute authorization flow
+    return executeAuthorization(authorization, response =>
+      this.saveAndRetry(authorization, response)
+    )
+  }
+
+  throw new Error('Not implemented')
+}
+
+private async saveAndRetry(
+  req: AuthorizationRequest,
+  resp: AuthorizationResponse
+) {
+  await persistAuthorizationResponse(this.context.clients.vbase, resp)
+  this.callback(req, resp)
+}
+```
+
+```typescript flow.ts
+export const executeAuthorization = (
+  request: AuthorizationRequest,
+  retry: (response: AuthorizationResponse) => void
+): AuthorizationResponse => {
+  const flow = findFlow(request)
+  return flows[flow](request, retry)
+}
+
+const findFlow = (request: AuthorizationRequest): Flow => {
+  if (isBankInvoiceAuthorization(request)) return 'BankInvoice'
+
+  if (isCardAuthorization(request)) {
+    const { card } = request
+    const cardNumber = isTokenizedCard(card) ? null : card.number
+    return cardResponses[cardNumber as CardNumber]
+  }
+
+  return 'Authorize'
+}
+```
+</CodeGroup>
+
+## Key features
+
+### Idempotency
+
+The implementation persists authorization responses and returns the same response for duplicate requests with the same `paymentId`:
+
+```typescript
+const persistedResponse = await getPersistedAuthorizationResponse(
+  this.context.clients.vbase,
+  authorization
+)
+
+if (persistedResponse !== undefined && persistedResponse !== null) {
+  return persistedResponse
+}
+```
+
+### Asynchronous callbacks
+
+For pending transactions, use the `callback()` method to notify VTEX of final status:
+
+```typescript
+this.callback(authorizationRequest, finalResponse)
+```
+
+### Flow selection
+
+The framework automatically selects the appropriate flow based on:
+- Payment method (bank invoice detection)
+- Card details (specific test card numbers)
+- Card tokenization status (tokenized cards trigger redirect)
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Always persist responses">
+    Store authorization responses to ensure idempotent behavior. VTEX may retry requests, and you must return the same response for the same `paymentId`.
+  </Accordion>
+
+  <Accordion title="Handle asynchronous flows properly">
+    For pending authorizations, return immediately with `status: undefined` and use the callback mechanism to notify final status. Set appropriate `delayToCancel` values.
+  </Accordion>
+
+  <Accordion title="Include all required fields">
+    Approved authorizations must include `tid`, `authorizationId`, and `nsu`. Missing fields will cause VTEX to reject the response.
+  </Accordion>
+
+  <Accordion title="Validate card details">
+    Check card number format, expiration date, and security code before processing. Return appropriate denial messages for invalid data.
+  </Accordion>
+</AccordionGroup>
+
+## Related routes
+
+- [cancel()](/api/routes/cancel) - Cancel an authorized payment
+- [settle()](/api/routes/settle) - Settle an authorized payment
+- [refund()](/api/routes/refund) - Refund a settled payment

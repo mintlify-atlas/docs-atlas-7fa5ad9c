@@ -1,0 +1,289 @@
+---
+title: Secure Proxy
+description: Learn how to use Secure Proxy for PCI compliance when processing card payments
+---
+
+The Secure Proxy feature allows payment providers that are not PCI-certified to securely process card payments by routing sensitive card data through VTEX's PCI-certified infrastructure.
+
+## Overview
+
+When `usesSecureProxy` is enabled, your connector receives encrypted card tokens instead of raw card data, and a `secureProxyUrl` that routes requests through VTEX's secure infrastructure to PCI-certified endpoints.
+
+<Warning>
+  Apps implemented within VTEX IO cannot have the Secure Proxy disabled. This option only works for configuration apps. All IO connectors must use Secure Proxy unless they are PCI-certified entities.
+</Warning>
+
+## Configuration
+
+Enable Secure Proxy in your `paymentProvider/configuration.json`:
+
+```json
+{
+  "name": "MyConnector",
+  "usesSecureProxy": true,
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    }
+  ]
+}
+```
+
+<Info>
+  The `usesSecureProxy` option defaults to `true` for VTEX IO payment providers.
+</Info>
+
+## Implementation
+
+To use Secure Proxy, you need to:
+
+1. Extend the `SecureExternalClient` class
+2. Configure your PCI-certified endpoint
+3. Use the `secureProxyUrl` received in payment requests
+
+<Steps>
+  <Step title="Create a Secure External Client">
+    Extend `SecureExternalClient` with your PCI-certified endpoint:
+
+    ```typescript node/clients/SecureClient.ts
+    import { SecureExternalClient } from '@vtex/payment-provider'
+    import type {
+      InstanceOptions,
+      IOContext,
+      RequestConfig,
+    } from '@vtex/api'
+    import { CardAuthorization } from '@vtex/payment-provider'
+
+    export class MyPCICertifiedClient extends SecureExternalClient {
+      constructor(protected context: IOContext, options?: InstanceOptions) {
+        super('http://my-pci-certified-domain.com', context, options)
+      }
+
+      // Implement your payment methods
+    }
+    ```
+
+    <Note>
+      The endpoint `http://my-pci-certified-domain.com` must be approved by VTEX Secure Proxy by submitting the Attestation of Compliance (AOC) that includes this endpoint.
+    </Note>
+  </Step>
+
+  <Step title="Implement secure payment methods">
+    Use the `secureProxyUrl` from the authorization request:
+
+    ```typescript node/clients/SecureClient.ts
+    export class MyPCICertifiedClient extends SecureExternalClient {
+      constructor(protected context: IOContext, options?: InstanceOptions) {
+        super('http://my-pci-certified-domain.com', context, options)
+      }
+
+      public processPayment = (cardRequest: CardAuthorization) => {
+        return this.http.post(
+          'api/v1/payments',
+          {
+            holder: cardRequest.holderToken,
+            number: cardRequest.numberToken,
+            expiration: cardRequest.expiration,
+            csc: cardRequest.cscToken,
+          },
+          {
+            headers: {
+              Authorization: 'Bearer your-api-key',
+              'Content-Type': 'application/json',
+            },
+            secureProxy: cardRequest.secureProxyUrl,
+          } as RequestConfig
+        )
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Use the client in your connector">
+    Access the secure client from your connector:
+
+    ```typescript node/connector.ts
+    import {
+      PaymentProvider,
+      AuthorizationRequest,
+      AuthorizationResponse,
+      Authorizations,
+      isCardAuthorization,
+    } from '@vtex/payment-provider'
+
+    export default class MyConnector extends PaymentProvider {
+      public async authorize(
+        request: AuthorizationRequest
+      ): Promise<AuthorizationResponse> {
+        if (isCardAuthorization(request)) {
+          const { card } = request
+
+          // Use the secure client
+          const response = await this.context.clients.myPCIClient.processPayment(card)
+
+          return Authorizations.approve(request, {
+            authorizationId: response.transactionId,
+            nsu: response.nsu,
+            tid: response.tid,
+          })
+        }
+
+        throw new Error('Unsupported payment method')
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Card data tokenization
+
+When Secure Proxy is enabled, card data is tokenized:
+
+| Original Field | Tokenized Field | Description |
+|---------------|-----------------|-------------|
+| `card.number` | `card.numberToken` | Encrypted card number |
+| `card.holder` | `card.holderToken` | Encrypted cardholder name |
+| `card.csc` | `card.cscToken` | Encrypted security code |
+| `card.expiration` | `card.expiration` | Expiration date (not encrypted) |
+
+## Supported content types
+
+VTEX Secure Proxy currently supports two content types:
+
+- `application/json`
+- `application/x-www-form-urlencoded`
+
+<Warning>
+  Any other Content-Type will not be supported by the Secure Proxy and will result in errors.
+</Warning>
+
+## Example with form-encoded data
+
+```typescript
+public processFormEncodedPayment = (cardRequest: CardAuthorization) => {
+  const formData = new URLSearchParams()
+  formData.append('card_holder', cardRequest.holderToken)
+  formData.append('card_number', cardRequest.numberToken)
+  formData.append('card_exp', cardRequest.expiration.month + cardRequest.expiration.year)
+  formData.append('card_cvv', cardRequest.cscToken)
+
+  return this.http.post(
+    'api/v1/charge',
+    formData.toString(),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: 'Bearer your-api-key',
+      },
+      secureProxy: cardRequest.secureProxyUrl,
+    } as RequestConfig
+  )
+}
+```
+
+## AOC submission process
+
+To use Secure Proxy with your PCI-certified endpoint:
+
+<Steps>
+  <Step title="Obtain PCI-DSS AOC">
+    Ensure your payment processor has a valid PCI-DSS Attestation of Compliance that includes the endpoint you want to use.
+  </Step>
+
+  <Step title="Submit AOC to VTEX">
+    Contact VTEX support or your implementation team to submit the AOC document with the endpoint URL.
+  </Step>
+
+  <Step title="Wait for approval">
+    VTEX will review and approve the endpoint for use with Secure Proxy.
+  </Step>
+
+  <Step title="Configure your connector">
+    Once approved, configure your `SecureExternalClient` with the approved endpoint URL.
+  </Step>
+</Steps>
+
+## Testing secure proxy
+
+During development, you can test your Secure Proxy implementation:
+
+```typescript
+import { isTokenizedCard } from '@vtex/payment-provider'
+
+public async authorize(
+  request: AuthorizationRequest
+): Promise<AuthorizationResponse> {
+  if (isCardAuthorization(request)) {
+    const { card } = request
+
+    // Check if card is tokenized (Secure Proxy enabled)
+    if (isTokenizedCard(card)) {
+      console.log('Using Secure Proxy with tokens')
+      // Process with tokens
+    } else {
+      console.log('Processing without Secure Proxy')
+      // Direct processing (only for PCI-certified connectors)
+    }
+  }
+}
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Always validate secureProxyUrl">
+    Check that `secureProxyUrl` is present before making requests:
+
+    ```typescript
+    if (!cardRequest.secureProxyUrl) {
+      throw new Error('Secure Proxy URL not provided')
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use type guards">
+    Use the provided type guards to check card type:
+
+    ```typescript
+    import { isTokenizedCard, isCardAuthorization } from '@vtex/payment-provider'
+
+    if (isCardAuthorization(request) && isTokenizedCard(request.card)) {
+      // Safe to access tokenized fields
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle errors gracefully">
+    Implement proper error handling for Secure Proxy requests:
+
+    ```typescript
+    try {
+      const response = await this.context.clients.secureClient.processPayment(card)
+      return Authorizations.approve(request, response)
+    } catch (error) {
+      return Authorizations.deny(request, {
+        message: 'Payment processing failed',
+      })
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Never log sensitive data">
+    Even with tokenized data, avoid logging card information:
+
+    ```typescript
+    // ❌ Don't do this
+    console.log('Card data:', card)
+
+    // ✅ Do this instead
+    console.log('Processing payment for order:', request.orderId)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related resources
+
+- [Payment Provider Protocol](/concepts/payment-provider-protocol)
+- [Authorization Route](/api/routes/authorize)
+- [PCI Compliance Requirements](https://www.pcisecuritystandards.org/)

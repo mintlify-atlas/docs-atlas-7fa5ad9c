@@ -1,0 +1,393 @@
+---
+title: Prerequisites
+description: Set up your development environment and understand the requirements for building VTEX payment connectors
+---
+
+Before building a payment connector with the VTEX Payment Provider Framework, ensure your development environment meets these requirements.
+
+## Required tools and accounts
+
+### VTEX account
+
+You need a VTEX account with the appropriate permissions to develop and test payment connectors.
+
+<Note>
+**Testing IO connectors**: Your account must be **explicitly allowed** to test IO connectors. Contact VTEX support or use the "Allow Account to test" workflow in the `#provider-review` Slack channel to request access.
+</Note>
+
+### VTEX IO CLI
+
+Install the VTEX IO command-line interface:
+
+```bash
+yarn global add vtex
+# or
+npm install -g vtex
+```
+
+Verify the installation:
+
+```bash
+vtex --version
+```
+
+Login to your VTEX account:
+
+```bash
+vtex login {account-name}
+```
+
+### Node.js and package manager
+
+The framework requires:
+- **Node.js**: Version 12.x or higher
+- **Yarn** or **npm**: For dependency management
+
+Check your versions:
+
+```bash
+node --version
+yarn --version
+```
+
+### TypeScript knowledge
+
+The Payment Provider Framework is built with TypeScript. Familiarity with:
+- TypeScript syntax and type system
+- Async/await patterns
+- Object-oriented programming (classes and inheritance)
+
+### Git version control
+
+Git is required for cloning the example repository and version control:
+
+```bash
+git --version
+```
+
+## Development environment setup
+
+<Steps>
+  <Step title="Install VTEX IO CLI">
+    ```bash
+    yarn global add vtex
+    ```
+  </Step>
+  
+  <Step title="Login to your VTEX account">
+    ```bash
+    vtex login {your-account}
+    ```
+  </Step>
+  
+  <Step title="Create a development workspace">
+    ```bash
+    vtex use dev-workspace
+    ```
+    
+    Workspaces allow you to develop and test in isolation without affecting production.
+  </Step>
+  
+  <Step title="Clone the example repository">
+    ```bash
+    git clone https://github.com/vtex-apps/payment-provider-example.git
+    cd payment-provider-example
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    cd node
+    yarn install
+    ```
+  </Step>
+</Steps>
+
+## Required dependencies
+
+Your `node/package.json` must include these core dependencies:
+
+```json node/package.json
+{
+  "dependencies": {
+    "@vtex/payment-provider": "^1.4.0",
+    "@vtex/api": "6.x"
+  },
+  "devDependencies": {
+    "@types/node": "^12.0.0",
+    "typescript": "3.9.7"
+  }
+}
+```
+
+### Core packages
+
+**`@vtex/payment-provider`** (required)
+- Version: `^1.4.0` or higher
+- Provides: `PaymentProvider` class, type definitions, helper functions, and protocol implementation
+- Listed in: `dependencies`
+
+**`@vtex/api`** (required)
+- Version: `6.x`
+- Provides: VTEX IO platform APIs, service framework, and VBase client
+- Listed in: `devDependencies`
+
+<Warning>
+If you encounter type errors related to `@vtex/api`, delete the `node_modules` folder and `yarn.lock` file from both your project root and `node` folder, then run `yarn install -f` in both locations.
+</Warning>
+
+## Manifest configuration
+
+Your `manifest.json` must include the required builders:
+
+```json manifest.json
+{
+  "name": "payment-provider-example",
+  "vendor": "vtex",
+  "version": "1.0.0",
+  "title": "Payment Provider Example",
+  "description": "Reference app for Payment-Provider protocol implementers",
+  "builders": {
+    "paymentProvider": "1.x",
+    "node": "6.x"
+  },
+  "policies": [
+    {
+      "name": "vbase-read-write"
+    },
+    {
+      "name": "colossus-fire-event"
+    },
+    {
+      "name": "colossus-write-logs"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "heimdall.vtexpayments.com.br",
+        "path": "/api/payment-provider/callback/*"
+      }
+    }
+  ]
+}
+```
+
+### Builders
+
+**`paymentProvider: 1.x`** - Automatically generates protocol routes (`/manifest`, `/payment-methods`) and exposes your connector to the VTEX Gateway.
+
+**`node: 6.x`** - Runs your Node.js service with TypeScript support.
+
+### Required policies
+
+Policies grant your app permissions to access VTEX platform services:
+
+| Policy | Purpose |
+|--------|--------|
+| `vbase-read-write` | Read and write to VBase for persisting payment data |
+| `colossus-fire-event` | Emit events for monitoring and analytics |
+| `colossus-write-logs` | Write logs for debugging and audit trails |
+| `outbound-access` | Make HTTP requests to VTEX Payment Gateway for callbacks |
+
+<Note>
+If your connector needs to call external payment gateway APIs, add additional `outbound-access` policies with the gateway's host.
+</Note>
+
+## Payment gateway requirements
+
+To integrate with an external payment gateway, you need:
+
+### API credentials
+
+Obtain API credentials from your payment gateway:
+- API keys or client ID
+- Secret tokens or passwords
+- OAuth client credentials (if using OAuth flow)
+
+These will be configured as `customFields` in your `paymentProvider/configuration.json`.
+
+### API documentation
+
+Familiarize yourself with your payment gateway's API:
+- Authorization/payment creation endpoints
+- Cancellation/void endpoints
+- Capture/settlement endpoints
+- Refund endpoints
+- Webhook/callback mechanisms
+
+### PCI compliance (optional)
+
+If your payment gateway is **not PCI-certified**:
+- Use VTEX Secure Proxy to route card data securely
+- Your connector remains non-PCI compliant
+- Card data is tokenized and encrypted
+
+If your payment gateway **is PCI-certified**:
+- Submit the gateway's AOC (Attestation of Compliance) to VTEX
+- Configure `usesSecureProxy: false` in your configuration
+- Handle raw card data directly
+
+<Warning>
+VTEX IO apps **cannot disable Secure Proxy**. If you need direct access to card data, you must build a configuration app instead of an IO app.
+</Warning>
+
+## Testing requirements
+
+Before deploying to production, ensure you have:
+
+### Test environment
+
+- Access to a VTEX test account
+- A development workspace for isolated testing
+- Test products configured in your store
+
+### Payment gateway sandbox
+
+- Sandbox/test API credentials from your payment gateway
+- Test card numbers provided by the gateway
+- Understanding of the gateway's test mode behavior
+
+### VTEX test suite
+
+Your connector must pass the VTEX Payment Provider test suite. The test suite validates:
+- Protocol compliance
+- Correct response formats
+- Handling of different payment scenarios
+- Async payment flows
+
+Refer to the [VTEX Payment Provider Protocol testing documentation](https://help.vtex.com/en/tutorial/payment-provider-protocol#4-testing) for complete testing requirements.
+
+## Optional: Secure Proxy setup
+
+If using Secure Proxy for PCI compliance:
+
+<Steps>
+  <Step title="Submit gateway AOC">
+    Submit your payment gateway's AOC to VTEX to whitelist the gateway endpoint
+  </Step>
+  
+  <Step title="Configure usesSecureProxy">
+    Set `usesSecureProxy: true` in `paymentProvider/configuration.json` (this is the default)
+  </Step>
+  
+  <Step title="Implement SecureExternalClient">
+    Extend the `SecureExternalClient` class to make PCI-compliant API calls
+  </Step>
+</Steps>
+
+Example Secure Proxy client:
+
+```typescript node/clients/gateway.ts
+import { SecureExternalClient } from '@vtex/payment-provider'
+import type { InstanceOptions, IOContext } from '@vtex/api'
+
+export class PaymentGatewayClient extends SecureExternalClient {
+  constructor(protected context: IOContext, options?: InstanceOptions) {
+    super('https://api.payment-gateway.com', context, options)
+  }
+
+  public async authorizePayment(cardData: any, secureProxyUrl: string) {
+    return this.http.post(
+      '/v1/payments',
+      {
+        cardNumber: cardData.numberToken,
+        cvv: cardData.cscToken,
+        expiration: cardData.expiration,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.context.authToken}`,
+        },
+        secureProxy: secureProxyUrl,
+      }
+    )
+  }
+}
+```
+
+<Note>
+Secure Proxy only supports `application/json` and `application/x-www-form-urlencoded` content types.
+</Note>
+
+## Knowledge prerequisites
+
+To successfully build a payment connector, you should understand:
+
+### VTEX concepts
+
+- **VTEX IO**: Platform for building and deploying VTEX apps
+- **Workspaces**: Isolated development environments
+- **VBase**: VTEX's key-value database for state persistence
+- **Payment Gateway**: VTEX's payment orchestration system
+
+### Payment processing concepts
+
+- **Authorization**: Reserving funds on a customer's payment method
+- **Capture/Settlement**: Actually charging the reserved funds
+- **Cancellation/Void**: Releasing reserved funds before capture
+- **Refund**: Returning captured funds to the customer
+- **Two-phase commit**: Authorization → Capture workflow
+- **Payment splits**: Dividing payment across multiple recipients
+
+### Protocol concepts
+
+- **Payment Provider Protocol**: VTEX's standardized interface for payment connectors
+- **Async payments**: Payments that require callback/webhook confirmation
+- **Retry mechanism**: Re-attempting requests for async payment resolution
+- **Idempotency**: Handling duplicate requests safely
+
+## Common issues and solutions
+
+### TypeScript version conflicts
+
+**Problem**: Type errors related to `@vtex/api` compatibility.
+
+**Solution**:
+```bash
+# Delete node_modules and lock files
+rm -rf node_modules yarn.lock
+cd node && rm -rf node_modules yarn.lock
+
+# Reinstall with force flag
+cd .. && yarn install -f
+cd node && yarn install -f
+```
+
+### Builder version mismatch
+
+**Problem**: Manifest builder versions don't match installed packages.
+
+**Solution**: Ensure `manifest.json` builders match package versions:
+- `paymentProvider: 1.x` → `@vtex/payment-provider: ^1.x`
+- `node: 6.x` → `@vtex/api: 6.x`
+
+### Workspace linking errors
+
+**Problem**: App fails to link in development workspace.
+
+**Solution**:
+```bash
+# Ensure you're logged in
+vtex whoami
+
+# Switch to a clean workspace
+vtex use new-dev-workspace
+
+# Link again
+vtex link
+```
+
+## Next steps
+
+With your environment set up, you're ready to build your first connector:
+
+<Card title="Quick start guide" icon="rocket" href="/quickstart">
+  Build a working payment connector in under 10 minutes
+</Card>
+
+## Additional resources
+
+- [VTEX IO Documentation](https://developers.vtex.com/vtex-developer-docs/docs/vtex-io-documentation-what-is-vtex-io)
+- [Payment Provider Protocol](https://help.vtex.com/en/tutorial/payment-provider-protocol)
+- [VTEX Developer Portal](https://developers.vtex.com)
+- [Example Repository](https://github.com/vtex-apps/payment-provider-example)

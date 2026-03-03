@@ -1,0 +1,622 @@
+---
+title: Configuring payment methods
+description: Learn how to configure supported payment methods and custom fields in paymentProvider/configuration.json
+---
+
+This guide covers the configuration of payment methods and custom fields in the `paymentProvider/configuration.json` file. This file defines which payment methods your connector supports and what configuration fields are required.
+
+## Configuration file structure
+
+The `paymentProvider/configuration.json` file has three main sections:
+
+```json paymentProvider/configuration.json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    // Payment method definitions
+  ],
+  "customFields": [
+    // Custom configuration fields
+  ]
+}
+```
+
+## Payment methods configuration
+
+The `paymentMethods` array defines which payment methods your connector supports.
+
+### Basic payment method structure
+
+Each payment method requires:
+- **name**: The payment method identifier
+- **allowsSplit**: When split payments are allowed
+
+```json
+{
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    }
+  ]
+}
+```
+
+### Split payment options
+
+The `allowsSplit` field determines when split payments (for marketplace scenarios) are allowed:
+
+<AccordionGroup>
+
+<Accordion title="onCapture">
+
+Split is calculated at capture/settlement time:
+- Used for most credit card payments
+- Split amount determined when payment is settled
+- Most common option for card-based payments
+
+```json
+{
+  "name": "Visa",
+  "allowsSplit": "onCapture"
+}
+```
+
+</Accordion>
+
+<Accordion title="onAuthorize">
+
+Split is calculated at authorization time:
+- Used for immediate payment methods (bank invoice, debit)
+- Split amount determined when payment is authorized
+- Required for payment methods without a separate capture step
+
+```json
+{
+  "name": "BankInvoice",
+  "allowsSplit": "onAuthorize"
+}
+```
+
+</Accordion>
+
+<Accordion title="disabled">
+
+Split payments are not supported:
+- Use when your payment gateway doesn't support splits
+- Marketplace transactions will be rejected
+
+```json
+{
+  "name": "CustomMethod",
+  "allowsSplit": "disabled"
+}
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+### Supported payment method names
+
+VTEX recognizes specific payment method names. Here are the most common:
+
+<Tabs>
+  <Tab title="Credit cards">
+    
+**Credit card brands**:
+- `Visa`
+- `Mastercard`
+- `American Express`
+- `Diners`
+- `Elo`
+- `Hipercard`
+- `Discover`
+- `JCB`
+
+```json
+{
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    }
+  ]
+}
+```
+
+  </Tab>
+  <Tab title="Debit cards">
+    
+**Debit card brands**:
+- `Visa Electron`
+- `Maestro`
+- `Elo Debito`
+
+```json
+{
+  "paymentMethods": [
+    {
+      "name": "Visa Electron",
+      "allowsSplit": "onAuthorize"
+    },
+    {
+      "name": "Maestro",
+      "allowsSplit": "onAuthorize"
+    }
+  ]
+}
+```
+
+  </Tab>
+  <Tab title="Alternative methods">
+    
+**Other payment methods**:
+- `BankInvoice` - Bank slip (boleto)
+- `Pix` - Brazilian instant payment
+- `PayPal`
+- `Wallet` - Digital wallets
+
+```json
+{
+  "paymentMethods": [
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    },
+    {
+      "name": "Pix",
+      "allowsSplit": "onAuthorize"
+    }
+  ]
+}
+```
+
+  </Tab>
+</Tabs>
+
+### Complete payment methods example
+
+Here's the complete example from the TestSuiteApprover connector:
+
+```json paymentProvider/configuration.json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Diners",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Elo",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Hipercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ]
+}
+```
+
+<Note>
+Only include payment methods that your payment gateway actually supports. Adding unsupported methods will cause payment failures.
+</Note>
+
+## Custom fields configuration
+
+Custom fields define configuration parameters required by your connector, such as API credentials.
+
+### Field types
+
+VTEX supports several field types:
+
+<CodeGroup>
+
+```json Text field
+{
+  "name": "Client ID",
+  "type": "text"
+}
+```
+
+```json Password field
+{
+  "name": "Secret Token",
+  "type": "password"
+}
+```
+
+```json Select dropdown
+{
+  "name": "Currency",
+  "type": "select",
+  "options": [
+    {
+      "text": "BRL",
+      "value": "1"
+    },
+    {
+      "text": "USD",
+      "value": "2"
+    }
+  ]
+}
+```
+
+```json Checkbox
+{
+  "name": "Enable test mode",
+  "type": "checkbox"
+}
+```
+
+</CodeGroup>
+
+### Custom fields structure
+
+<Steps>
+
+<Step title="Text field">
+
+Simple text input for non-sensitive data:
+
+```json
+{
+  "name": "Client ID",
+  "type": "text"
+}
+```
+
+Use for:
+- Client IDs
+- Account numbers
+- API endpoints
+- Merchant IDs
+
+</Step>
+
+<Step title="Password field">
+
+Masked input for sensitive data:
+
+```json
+{
+  "name": "Secret Token",
+  "type": "password"
+}
+```
+
+Use for:
+- API keys
+- Secret tokens
+- Passwords
+- Private keys
+
+<Warning>
+Password fields are encrypted in VTEX admin but should still be handled securely in your code.
+</Warning>
+
+</Step>
+
+<Step title="Select dropdown">
+
+Dropdown with predefined options:
+
+```json
+{
+  "name": "Currency",
+  "type": "select",
+  "options": [
+    {
+      "text": "BRL",
+      "value": "1"
+    },
+    {
+      "text": "USD",
+      "value": "2"
+    }
+  ]
+}
+```
+
+Use for:
+- Environment selection (sandbox/production)
+- Currency selection
+- Region selection
+- Feature flags
+
+</Step>
+
+</Steps>
+
+### Complete custom fields example
+
+Here's the complete example from the TestSuiteApprover connector:
+
+```json paymentProvider/configuration.json
+{
+  "name": "TestSuitApprover",
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Accessing custom fields in code
+
+Access custom field values in your connector through the context:
+
+```typescript
+export default class TestSuiteApprover extends PaymentProvider {
+  private getClientId(): string {
+    return this.context.vtex.settings['Client ID']
+  }
+  
+  private getSecretToken(): string {
+    return this.context.vtex.settings['Secret Token']
+  }
+  
+  private getCurrency(): string {
+    return this.context.vtex.settings['Currency']
+  }
+  
+  public async authorize(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    const clientId = this.getClientId()
+    const secretToken = this.getSecretToken()
+    const currency = this.getCurrency()
+    
+    // Use configuration values
+    const response = await this.paymentGateway.authorize({
+      clientId,
+      secretToken,
+      currency,
+      ...authorization
+    })
+    
+    return this.mapResponse(response)
+  }
+}
+```
+
+## Complete configuration example
+
+Here's the complete `paymentProvider/configuration.json` from the TestSuiteApprover connector:
+
+```json paymentProvider/configuration.json
+{
+  "name": "TestSuitApprover",
+  "paymentMethods": [
+    {
+      "name": "Visa",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "American Express",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Diners",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Elo",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Hipercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "Mastercard",
+      "allowsSplit": "onCapture"
+    },
+    {
+      "name": "BankInvoice",
+      "allowsSplit": "onAuthorize"
+    }
+  ],
+  "customFields": [
+    {
+      "name": "Client ID",
+      "type": "text"
+    },
+    {
+      "name": "Secret Token",
+      "type": "password"
+    },
+    {
+      "name": "Currency",
+      "type": "select",
+      "options": [
+        {
+          "text": "BRL",
+          "value": "1"
+        },
+        {
+          "text": "USD",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Validation and testing
+
+<Steps>
+
+<Step title="Validate JSON structure">
+
+Ensure your configuration.json is valid JSON:
+
+```bash
+jsonlint paymentProvider/configuration.json
+```
+
+</Step>
+
+<Step title="Test in VTEX admin">
+
+After linking your app, configure it in VTEX admin:
+
+1. Go to Admin > Payments > Settings > Gateway affiliations
+2. Find your connector
+3. Fill in custom fields
+4. Save configuration
+
+</Step>
+
+<Step title="Verify payment methods">
+
+Check that payment methods appear correctly:
+
+1. Go to Admin > Payments > Settings > Payment conditions
+2. Create a new payment condition
+3. Verify your connector appears with correct payment methods
+
+</Step>
+
+</Steps>
+
+## Common issues and solutions
+
+<AccordionGroup>
+
+<Accordion title="Payment method not appearing">
+
+**Issue**: Configured payment method doesn't show in admin
+
+**Solutions**:
+- Verify the payment method name matches VTEX standard names
+- Check for typos in the `name` field
+- Restart your app with `vtex unlink && vtex link`
+- Clear browser cache and refresh admin
+
+</Accordion>
+
+<Accordion title="Custom field values not accessible">
+
+**Issue**: Cannot access custom field values in code
+
+**Solutions**:
+- Ensure field name in code exactly matches `name` in configuration.json
+- Check that merchant has saved configuration in admin
+- Verify `this.context.vtex.settings` is defined
+
+```typescript
+// Correct - exact match
+this.context.vtex.settings['Client ID']
+
+// Incorrect - case mismatch
+this.context.vtex.settings['client id']
+```
+
+</Accordion>
+
+<Accordion title="Split payments not working">
+
+**Issue**: Split payments rejected for marketplace orders
+
+**Solutions**:
+- Verify `allowsSplit` is set correctly for each payment method
+- Use `onCapture` for credit cards
+- Use `onAuthorize` for immediate payment methods
+- Ensure your connector properly handles split in authorization/settlement
+
+</Accordion>
+
+<Accordion title="Configuration.json changes not reflected">
+
+**Issue**: Changes to configuration.json don't appear in admin
+
+**Solutions**:
+- Unlink and relink your app:
+  ```bash
+  vtex unlink && vtex link
+  ```
+- Increment version in manifest.json
+- Publish and install the new version
+
+</Accordion>
+
+</AccordionGroup>
+
+## Best practices
+
+<Note>
+**Security**
+- Use `password` type for all sensitive fields
+- Never log or expose password field values
+- Validate all custom field values before use
+
+**Payment methods**
+- Only include methods your gateway supports
+- Use correct `allowsSplit` values for each method
+- Test each payment method individually
+
+**Custom fields**
+- Use clear, descriptive field names
+- Provide helpful field descriptions
+- Use select fields to prevent invalid input
+- Minimize required configuration
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Implementing routes" icon="route" href="/guides/implementing-routes">
+    Learn how to implement the required payment routes
+  </Card>
+  <Card title="Creating connector" icon="code" href="/guides/creating-connector">
+    Learn how to create a connector from scratch
+  </Card>
+</CardGroup>
